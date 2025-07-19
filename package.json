@@ -1,0 +1,38 @@
+{
+  "name": "language-material-translation",
+  "version": "1.0.0",
+  "description": "智能语言学习助手 - 将英语字幕转化为个性化学习材料的AI助手",
+  "main": "index.js",
+  "scripts": {
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "build:all": "cd frontend && npm run build",
+    "start:all": "cd backend && npm start",
+    "dev:all": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "language-learning",
+    "ai",
+    "translation",
+    "education",
+    "react",
+    "nodejs"
+  ],
+  "author": "PuJes",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PuJes/language-material-translation.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PuJes/language-material-translation/issues"
+  },
+  "homepage": "https://github.com/PuJes/language-material-translation#readme"
+} 

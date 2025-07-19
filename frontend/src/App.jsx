@@ -885,7 +885,7 @@ function App() {
       <div className="main-container">
         {/* 现代化头部 */}
         <div className="app-header">
-          <h1 className="app-title">🎓 智能语言学习助手</h1>
+          <h1 className="app-title">🎓 AI智能英语学习助手</h1>
           <p style={{ color: 'rgba(255, 255, 255, 0.9)', margin: 0, fontSize: '1.1rem' }}>
             将影视字幕转化为个性化学习材料 {result && processingTime && (
               <span style={{ fontSize: '0.9rem', opacity: 0.8 }}>

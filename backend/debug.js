@@ -1,0 +1,1 @@
+console.log('开始启动服务器...'); const express = require('express'); console.log('Express加载成功'); const app = express(); const PORT = 3002; app.get('/', (req, res) => { console.log('收到请求'); res.send('Hello World'); }); app.listen(PORT, () => { console.log(`服务器成功启动: http://localhost:${PORT}`); });

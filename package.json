@@ -1,0 +1,29 @@
+{
+  "name": "language-translation-app",
+  "version": "1.0.0",
+  "description": "智能语言学习助手",
+  "main": "index.js",
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "start:backend": "cd backend && npm start",
+    "start:frontend": "cd frontend && npm run dev",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug"
+  },
+  "keywords": [
+    "language",
+    "learning",
+    "translation",
+    "react",
+    "nodejs"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.42.1",
+    "playwright": "^1.42.1"
+  }
+} 

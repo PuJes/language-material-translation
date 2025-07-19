@@ -1,0 +1,26 @@
+services:
+  # 后端服务
+  - type: web
+    name: language-learning-backend
+    env: node
+    plan: free
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && node index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: PORT
+        value: 3001
+
+  # 前端服务
+  - type: web
+    name: language-learning-frontend
+    env: static
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://language-learning-backend.onrender.com 

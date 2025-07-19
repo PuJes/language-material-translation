@@ -17,6 +17,26 @@ git push origin main
 
 ## 🎯 推荐部署方案
 
+### 方案0：GitHub Actions（自动化部署）
+
+GitHub Actions已经配置好，可以自动构建和测试您的项目：
+
+1. **推送代码到GitHub**
+   ```bash
+   git add .
+   git commit -m "更新项目配置"
+   git push origin main
+   ```
+
+2. **查看Actions状态**
+   - 访问您的GitHub仓库
+   - 点击 "Actions" 标签
+   - 查看构建状态
+
+3. **手动部署到云平台**
+   - 构建成功后，下载构建产物
+   - 按照下面的方案部署到云平台
+
 ### 方案1：Vercel + Railway（最推荐）
 
 #### 前端部署到Vercel

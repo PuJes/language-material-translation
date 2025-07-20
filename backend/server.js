@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws'); // 引入 WebSocket 库
 const { v4: uuidv4 } = require('uuid'); // 引入 uuid 库
+const aiPrompts = require('./ai-prompts'); // 引入AI提示词配置
 require('dotenv').config();
 console.log('依赖加载完成');
 
@@ -129,7 +130,7 @@ async function callDeepSeekAPI(prompt, text, retries = 3) {
           'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
           'Content-Type': 'application/json'
         },
-        timeout: 45000 // 增加超时时间到45秒
+        timeout: 120000 // 增加超时时间到2分钟
       });
       
       const result = response.data.choices[0].message.content;
@@ -177,191 +178,222 @@ function detectContentType(fullText) {
   }
 }
 
-// 关键词提取函数
-function extractKeyElements(text) {
-  const words = text.toLowerCase().split(/\s+/);
-  const keyPatterns = [
-    /\b(past|present|future|tense|verb|noun|adjective)\b/i,
-    /\b(because|however|therefore|although|while)\b/i,
-    /\b(important|necessary|possible|difficult|easy)\b/i,
-    /\b(should|must|can|could|would|will)\b/i,
-    /\b(people|person|thing|place|time|money)\b/i
-  ];
-  
-  const foundElements = [];
-  keyPatterns.forEach(pattern => {
-    const match = text.match(pattern);
-    if (match) foundElements.push(match[0]);
-  });
-  
-  return foundElements.slice(0, 3).join(', ') || 'key vocabulary';
-}
+// 使用ai-prompts.js中的extractKeyElements函数
+const extractKeyElements = aiPrompts.extractKeyElements;
 
-// 上下文感知的段落标题生成 - 版本3优化
+// 上下文感知的段落标题生成 - 版本4优化
 async function batchProcessTitles(paragraphs, englishLevel, clientId) {
   console.log('[AI处理] 开始上下文感知的段落标题生成...');
   
-  const textsForTitles = paragraphs.map(p => 
-    p.sentences.map(s => s.text).join(' ')
+  // 添加防御性编程，过滤掉无效的段落
+  const validParagraphs = paragraphs.filter(p => p && p.sentences && Array.isArray(p.sentences) && p.sentences.length > 0);
+  
+  if (validParagraphs.length === 0) {
+    console.log('[标题生成] 没有有效的段落，跳过标题生成');
+    return;
+  }
+  
+  const textsForTitles = validParagraphs.map(p => 
+    p.sentences.map(s => s && s.text ? s.text : '').filter(text => text.length > 0).join(' ')
   );
+  
+  console.log(`[标题生成] 准备为 ${validParagraphs.length} 个段落生成标题`);
+  console.log(`[标题生成] 段落内容预览:`, textsForTitles.map(text => text.substring(0, 50) + '...'));
   
   // 构建完整上下文
   const fullContext = textsForTitles.join(' ');
   const contentType = detectContentType(fullContext);
   
-  // 版本3：上下文感知的提示词
-  const contextualPrompt = `Generate intelligent section titles for English learning based on ${englishLevel} proficiency level.
-
-CONTEXT: This is part of a larger English learning material focused on ${contentType}.
-
-LEARNING OBJECTIVES:
-- Target level: ${englishLevel}
-- Content type: ${contentType}
-- Focus: ${englishLevel === 'CET-4' ? 'basic vocabulary and grammar' : 
-           englishLevel === 'CET-6' ? 'intermediate expressions and complex structures' :
-           englishLevel === 'IELTS' ? 'academic vocabulary and formal expressions' :
-           'advanced academic English and precise terminology'}
-
-For each section, create:
-1. An engaging English title (3-5 words)
-2. A clear learning objective
-3. Key grammar/vocabulary focus
-4. Relevance to ${contentType}
-
-Section contents to analyze:
-${textsForTitles.map((text, i) => 
-  `${i+1}. Content preview: ${text.substring(0, 100)}... [Key elements: ${extractKeyElements(text)}]`
-).join('\n')}
-
-Return format (strict JSON):
-[{
-  "title": "Engaging English Title",
-  "objective": "Students will learn to...",
-  "focus": "past tense/vocabulary/phrasal verbs",
-  "relevance": "how this relates to ${contentType}"
-}]
-
-Make titles educational, memorable, and directly useful for ${englishLevel} learners studying ${contentType}.`;
+  // 使用配置化的提示词
+  const contextualPrompt = aiPrompts.generateTitlePrompt(englishLevel, contentType, textsForTitles);
 
   try {
     const response = await callDeepSeekAPI(contextualPrompt, '');
-    const cleanResponse = response.replace(/```json|```/g, '').trim();
-    const titles = JSON.parse(cleanResponse);
+    console.log(`[标题生成] API返回原始响应:`, response.substring(0, 200));
     
-    if (Array.isArray(titles) && titles.length === paragraphs.length) {
-      titles.forEach((item, index) => {
-        paragraphs[index].title = item.title;
-        paragraphs[index].learningObjective = item.objective;
-        paragraphs[index].focusArea = item.focus;
-        paragraphs[index].relevance = item.relevance;
-      });
+    const cleanResponse = response.replace(/```json|```/g, '').trim();
+    console.log(`[标题生成] 清理后响应:`, cleanResponse);
+    
+    let titles;
+    try {
+      titles = JSON.parse(cleanResponse);
+    } catch (parseError) {
+      console.log(`[标题生成] JSON解析失败:`, parseError.message);
+      console.log(`[标题生成] 尝试修复JSON格式...`);
       
-      console.log(`[上下文标题] 成功生成${paragraphs.length}个智能标题`);
-      console.log('标题详情:', titles.map(t => t.title));
-      
-      sendProgressToClient(clientId, { 
-        type: 'progress', 
-        stage: `✅ 上下文感知标题生成完成 (${contentType})`, 
-        percentage: 30 
+      // 尝试提取JSON数组
+      const jsonMatch = cleanResponse.match(/\[.*?\]/s);
+      if (jsonMatch) {
+        try {
+          titles = JSON.parse(jsonMatch[0]);
+          console.log(`[标题生成] 修复后解析成功:`, titles);
+        } catch (fixError) {
+          console.log(`[标题生成] 修复尝试失败:`, fixError.message);
+          throw parseError;
+        }
+      } else {
+        throw parseError;
+      }
+    }
+    
+    console.log(`[标题生成] 解析结果:`, titles);
+    console.log(`[标题生成] 期望数量: ${validParagraphs.length}, 实际数量: ${titles ? titles.length : 0}`);
+    
+    if (Array.isArray(titles) && titles.length === validParagraphs.length) {
+      validParagraphs.forEach((paragraph, index) => {
+        paragraph.title = titles[index] || `Section ${index + 1}`;
       });
+      console.log(`[标题生成] 成功生成 ${validParagraphs.length} 个段落标题`);
     } else {
-      throw new Error('返回格式不匹配');
+      throw new Error(`返回格式不匹配: 期望${validParagraphs.length}个标题，实际${titles ? titles.length : 0}个`);
     }
   } catch (error) {
-    console.log('[上下文标题] 失败，使用回退方案:', error.message);
-    
-    // 智能回退：基于内容类型生成简单标题
-    const fallbackTitles = textsForTitles.map((text, i) => {
-      const type = detectContentType(text);
-      return `${getContentPrefix(type)} ${i + 1}: ${extractSimpleTopic(text)}`;
-    });
-    
-    fallbackTitles.forEach((title, index) => {
-      paragraphs[index].title = title;
-      paragraphs[index].learningObjective = `Learn ${extractKeyElements(textsForTitles[index])} in ${contentType}`;
-      paragraphs[index].focusArea = extractKeyElements(textsForTitles[index]);
-      paragraphs[index].relevance = `Relevant to ${contentType}`;
-    });
-    
-    sendProgressToClient(clientId, { 
-      type: 'progress', 
-      stage: `⚠️ 使用智能回退标题 (${contentType})`, 
-      percentage: 30 
+    console.log('[标题生成] 失败，使用默认标题:', error.message);
+    validParagraphs.forEach((paragraph, index) => {
+      paragraph.title = `Section ${index + 1}`;
     });
   }
 }
 
-// 辅助函数
-function getContentPrefix(contentType) {
-  const prefixes = {
-    'movie dialogue and scenes': '🎬 Scene',
-    'academic content': '📚 Study',
-    'business communication': '💼 Business',
-    'daily conversation': '💬 Daily',
-    'travel situations': '✈️ Travel',
-    'general English content': '📖 Section'
-  };
-  return prefixes[contentType] || '📖 Section';
-}
-
-function extractSimpleTopic(text) {
-  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
-  const firstSentence = sentences[0] || text;
-  const keyWords = firstSentence.split(/\s+/).slice(0, 3).join(' ');
-  return keyWords.charAt(0).toUpperCase() + keyWords.slice(1);
-}
-
-// 批量处理句子解释 - 新增优化函数
+// 批量生成句子解释 - 版本3优化（增强错误处理）
 async function batchProcessExplanations(sentences, englishLevel, clientId) {
   console.log('[AI处理] 开始批量生成句子解释...');
   
-  // 分批处理，每批最多5个句子
-  const batchSize = 5; // 每批次处理5个句子
+  // 添加防御性编程，过滤掉无效的句子
+  const validSentences = sentences.filter(s => s && s.text && s.text.trim().length > 0);
+  
+  if (validSentences.length === 0) {
+    console.log('[批量解释] 没有有效的句子，跳过解释生成');
+    return;
+  }
+  
+  // 分批处理，每批最多3个句子（减少批次大小提高成功率）
+  const batchSize = 3;
   const batches = [];
   
-  for (let i = 0; i < sentences.length; i += batchSize) {
-    batches.push(sentences.slice(i, i + batchSize));
+  for (let i = 0; i < validSentences.length; i += batchSize) {
+    batches.push(validSentences.slice(i, i + batchSize));
   }
   
   const totalBatches = batches.length;
-  const startPercentage = 35; // 解释阶段从35%开始
-  const endPercentage = 85;   // 解释阶段到85%结束
+  const startPercentage = 35;
+  const endPercentage = 85;
 
   for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
     const batch = batches[batchIndex];
     
-    const batchPrompt = `Please explain these ${batch.length} English sentences in simple English suitable for ${englishLevel} level learners. \nFor each sentence, provide a concise explanation (under 80 words) focusing on meaning and key grammar points.\n\nReturn ONLY a JSON array of explanations in the same order:\n\n${batch.map((s, i) => `${i + 1}. "${s.text}"`).join('\n')}\n\nReturn format: ["Explanation 1", "Explanation 2", ...]`;
+    // 使用简化的提示词，提高成功率
+    const batchPrompt = aiPrompts.generateExplanationPrompt(englishLevel, batch);
 
-    try {
-      const response = await callDeepSeekAPI(batchPrompt, '');
-      const cleanResponse = response.replace(/```json|```/g, '').trim();
-      const explanations = JSON.parse(cleanResponse);
-      
-      if (Array.isArray(explanations) && explanations.length === batch.length) {
-        batch.forEach((sentence, index) => {
-          sentence.explanation = explanations[index];
-        });
-        console.log(`[批量解释] 批次 ${batchIndex + 1}/${totalBatches} 完成`);
+    let success = false;
+    let retryCount = 0;
+    const maxRetries = 2; // 每个批次最多重试2次
+
+    while (!success && retryCount <= maxRetries) {
+      try {
+        console.log(`[批量解释] 批次 ${batchIndex + 1}/${totalBatches}，尝试 ${retryCount + 1}/${maxRetries + 1}`);
         
-        // 计算并推送实时进度
-        const currentProgress = startPercentage + (batchIndex / totalBatches) * (endPercentage - startPercentage);
-        sendProgressToClient(clientId, { type: 'progress', stage: `📚 正在生成句子解释... (${batchIndex + 1}/${totalBatches} 批次)`, percentage: Math.min(endPercentage, Math.round(currentProgress)) });
+        const response = await callDeepSeekAPI(batchPrompt, '');
+        
+        // 增强的JSON解析和清理
+        let cleanResponse = response.replace(/```json|```/g, '').trim();
+        
+        // 尝试修复常见的JSON格式问题
+        try {
+          // 如果响应包含错误信息，直接抛出
+          if (cleanResponse.includes('API密钥错误') || 
+              cleanResponse.includes('API调用频率过高') || 
+              cleanResponse.includes('API调用超时') ||
+              cleanResponse.includes('AI服务暂时不可用')) {
+            throw new Error(cleanResponse);
+          }
+          
+          const explanations = JSON.parse(cleanResponse);
+          
+          if (Array.isArray(explanations) && explanations.length === batch.length) {
+            batch.forEach((sentence, index) => {
+              const exp = explanations[index];
+              // 简化的默认值处理
+              sentence.explanation = {
+                meaning: exp.meaning || `This sentence means: ${sentence.text}`
+              };
+            });
+            console.log(`[批量解释] 批次 ${batchIndex + 1}/${totalBatches} 完成`);
+            success = true;
+            
+            const currentProgress = startPercentage + (batchIndex / totalBatches) * (endPercentage - startPercentage);
+            sendProgressToClient(clientId, { 
+              type: 'progress', 
+              stage: `📚 正在生成句子解释... (${batchIndex + 1}/${totalBatches} 批次)`, 
+              percentage: Math.min(endPercentage, Math.round(currentProgress)) 
+            });
 
-      } else {
-        throw new Error('返回格式不匹配');
+          } else {
+            throw new Error(`返回格式不匹配: 期望${batch.length}个解释，实际${explanations ? explanations.length : 0}个`);
+          }
+        } catch (parseError) {
+          console.log(`[批量解释] JSON解析失败，尝试修复:`, parseError.message);
+          console.log(`[批量解释] 原始响应:`, cleanResponse.substring(0, 300));
+          
+          // 尝试提取JSON数组
+          const jsonMatch = cleanResponse.match(/\[.*?\]/s);
+          if (jsonMatch && retryCount === maxRetries) {
+            try {
+              const explanations = JSON.parse(jsonMatch[0]);
+              if (Array.isArray(explanations) && explanations.length === batch.length) {
+                batch.forEach((sentence, index) => {
+                  const exp = explanations[index];
+                  sentence.explanation = {
+                    meaning: exp.meaning || exp.explanation || `This sentence means: ${sentence.text}`,
+                    grammar: exp.grammar || exp.grammarPoint || 'General grammar structure',
+                    vocabulary: exp.vocabulary || exp.keyWords || 'Key vocabulary',
+                    usage: exp.usage || exp.context || 'Common usage pattern',
+                    tip: exp.tip || exp.learningTip || `Tip for ${englishLevel} learners`
+                  };
+                });
+                console.log(`[批量解释] 修复后批次 ${batchIndex + 1}/${totalBatches} 完成`);
+                success = true;
+              } else {
+                throw new Error('修复后格式仍不匹配');
+              }
+            } catch (fixError) {
+              console.log(`[批量解释] 修复尝试失败:`, fixError.message);
+              throw parseError; // 重新抛出原始错误
+            }
+          } else {
+            throw parseError;
+          }
+        }
+        
+      } catch (error) {
+        retryCount++;
+        console.log(`[批量解释] 批次 ${batchIndex + 1} 第${retryCount}次失败:`, error.message);
+        
+        if (retryCount > maxRetries) {
+          console.log(`[批量解释] 批次 ${batchIndex + 1} 所有重试都失败，使用默认解释`);
+          sendProgressToClient(clientId, { 
+            type: 'progress', 
+            stage: `⚠️ 句子解释失败，使用默认解释... (${batchIndex + 1}/${totalBatches} 批次)`, 
+            percentage: Math.min(endPercentage, Math.round(startPercentage + (batchIndex / totalBatches) * (endPercentage - startPercentage))) 
+          });
+          
+          // 回退到简单解释
+          batch.forEach(sentence => {
+            sentence.explanation = {
+              meaning: `This sentence means: ${sentence.text}`
+            };
+          });
+          success = true; // 标记为成功，继续下一批
+        } else {
+          // 等待更长时间后重试
+          await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+        }
       }
-    } catch (error) {
-      console.log(`[批量解释] 批次 ${batchIndex + 1} 失败，使用默认解释:`, error.message);
-      sendProgressToClient(clientId, { type: 'progress', stage: `⚠️ 句子解释失败，使用默认解释... (${batchIndex + 1}/${totalBatches} 批次)`, percentage: Math.min(endPercentage, Math.round(startPercentage + (batchIndex / totalBatches) * (endPercentage - startPercentage))) });
-      // 回退到简单解释
-      batch.forEach(sentence => {
-        sentence.explanation = `This sentence means: ${sentence.text}. It's commonly used in English conversation.`;
-      });
     }
     
-    // 批次间短暂延迟，避免API限流
+    // 批次间延迟，避免API限流
     if (batchIndex < totalBatches - 1) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
 }
@@ -428,21 +460,102 @@ function parseTXT(content) {
   }
 }
 
-// 分组为段落
-function groupIntoParagraphs(sentences) {
-  const paragraphs = [];
-  const perParagraph = Math.min(4, Math.max(2, Math.ceil(sentences.length / 10))); // 动态调整段落大小
+// 基于语义的段落划分
+async function groupIntoParagraphs(sentences) {
+  console.log('[AI处理] 开始基于语义的段落划分...');
   
-  for (let i = 0; i < sentences.length; i += perParagraph) {
-    paragraphs.push({
-      id: Math.floor(i / perParagraph) + 1,
-      sentences: sentences.slice(i, i + perParagraph),
-      title: ''
-    });
+  try {
+    // 使用AI进行语义段落划分
+    const divisionPrompt = aiPrompts.generateParagraphDivisionPrompt(sentences);
+    const response = await callDeepSeekAPI(divisionPrompt, '');
+    
+    // 改进JSON解析
+    let cleanResponse = response.replace(/```json|```/g, '').trim();
+    
+    // 尝试修复常见的JSON格式问题
+    try {
+      const paragraphGroups = JSON.parse(cleanResponse);
+      
+      if (!Array.isArray(paragraphGroups)) {
+        throw new Error('返回格式不是数组');
+      }
+      
+      const paragraphs = [];
+      paragraphGroups.forEach((group, index) => {
+        if (Array.isArray(group) && group.length > 0) {
+          const paragraphSentences = group.map(sentenceIndex => sentences[sentenceIndex]).filter(s => s && s.text);
+          if (paragraphSentences.length > 0) {
+            paragraphs.push({
+              id: index + 1,
+              sentences: paragraphSentences,
+              title: ''
+            });
+          }
+        }
+      });
+      
+      if (paragraphs.length > 0) {
+        console.log(`[语义分段] 成功划分为 ${paragraphs.length} 个段落`);
+        return paragraphs;
+      } else {
+        throw new Error('段落数组为空');
+      }
+      
+    } catch (parseError) {
+      console.log('[语义分段] JSON解析失败，尝试修复格式:', parseError.message);
+      console.log('[语义分段] 原始响应:', cleanResponse.substring(0, 200));
+      
+      // 尝试提取JSON数组
+      const jsonMatch = cleanResponse.match(/\[\[.*?\]\]/s);
+      if (jsonMatch) {
+        try {
+          const paragraphGroups = JSON.parse(jsonMatch[0]);
+          const paragraphs = [];
+          paragraphGroups.forEach((group, index) => {
+            if (Array.isArray(group) && group.length > 0) {
+              const paragraphSentences = group.map(sentenceIndex => sentences[sentenceIndex]).filter(s => s && s.text);
+              if (paragraphSentences.length > 0) {
+                paragraphs.push({
+                  id: index + 1,
+                  sentences: paragraphSentences,
+                  title: ''
+                });
+              }
+            }
+          });
+          
+          if (paragraphs.length > 0) {
+            console.log(`[语义分段] 修复后成功划分为 ${paragraphs.length} 个段落`);
+            return paragraphs;
+          }
+        } catch (fixError) {
+          console.log('[语义分段] 修复尝试失败:', fixError.message);
+        }
+      }
+      
+      throw new Error('无法解析AI返回的段落划分结果');
+    }
+    
+  } catch (error) {
+    console.log('[语义分段] AI划分失败，使用默认分组:', error.message);
+    // 回退到原来的简单分组逻辑
+    const paragraphs = [];
+    const perParagraph = Math.min(8, Math.max(4, Math.ceil(sentences.length / 4))); // 调整为更大的段落，最少4个句子
+    
+    for (let i = 0; i < sentences.length; i += perParagraph) {
+      const paragraphSentences = sentences.slice(i, i + perParagraph).filter(s => s && s.text);
+      if (paragraphSentences.length > 0) {
+        paragraphs.push({
+          id: Math.floor(i / perParagraph) + 1,
+          sentences: paragraphSentences,
+          title: ''
+        });
+      }
+    }
+    
+    console.log(`[默认分段] 共分为 ${paragraphs.length} 个段落，每段约 ${perParagraph} 个句子`);
+    return paragraphs;
   }
-  
-  console.log(`[分段] 共分为 ${paragraphs.length} 个段落，每段约 ${perParagraph} 个句子`);
-  return paragraphs;
 }
 
 // 测试路由
@@ -522,8 +635,9 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     console.log(`[解析] 完成，共${sentences.length}个句子`);
     sendProgressToClient(clientId, { type: 'progress', stage: '✅ 文件解析完成，开始智能分析...', percentage: 20 });
 
-    // 分段
-    const paragraphs = groupIntoParagraphs(sentences);
+    // 基于语义的段落划分
+    sendProgressToClient(clientId, { type: 'progress', stage: '🔍 正在分析语义段落...', percentage: 18 });
+    const paragraphs = await groupIntoParagraphs(sentences);
 
     // 记录开始时间
     const startTime = Date.now();
@@ -534,17 +648,21 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     sendProgressToClient(clientId, { type: 'progress', stage: '📚 正在生成句子解释...', percentage: 35 });
 
     // 批量生成句子解释 (优化)
-    const allSentences = paragraphs.flatMap(p => p.sentences);
+    const allSentences = paragraphs
+      .filter(p => p && p.sentences && Array.isArray(p.sentences))
+      .flatMap(p => p.sentences)
+      .filter(s => s && s.text && s.text.trim().length > 0);
     await batchProcessExplanations(allSentences, englishLevel, clientId); // 传递 clientId
 
-    // 快速词汇分析 (优化)
-    console.log('[AI处理] 开始快速词汇分析...');
+    // 精准词汇分析 (版本2优化)
+    console.log('[AI处理] 开始精准词汇分析...');
     sendProgressToClient(clientId, { type: 'progress', stage: '🎯 正在分析重点词汇...', percentage: 85 });
     const allText = sentences.map(s => s.text).join(' ');
     let vocabularyAnalysis = [];
 
     try {
-      const vocabPrompt = `Analyze this English text and quickly identify 6-8 key vocabulary words suitable for ${englishLevel} learners. \nReturn ONLY a valid JSON array:\n[{"term":"word","explanation":"simple meaning","usage":"how to use","examples":["ex1","ex2"]}]\n\nText: ${allText.substring(0, 1000)}`;
+      // 使用配置化的提示词
+      const vocabPrompt = aiPrompts.generateVocabularyPrompt(englishLevel, allText);
 
       const vocabResponse = await callDeepSeekAPI(vocabPrompt, '');
       const cleanResponse = vocabResponse.replace(/```json|```/g, '').trim();
@@ -556,12 +674,12 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
       vocabularyAnalysis = vocabularyAnalysis.filter(vocab =>
         vocab.term && vocab.explanation && vocab.usage && vocab.examples
-      ).slice(0, 8); // 最多8个词汇
+      ); // 移除数量限制，保留所有有效词汇
 
-      console.log(`[词汇] 快速分析完成，识别 ${vocabularyAnalysis.length} 个词汇`);
+      console.log(`[词汇] 精准分析完成，识别 ${vocabularyAnalysis.length} 个重点词汇`);
       sendProgressToClient(clientId, { type: 'progress', stage: '✨ 重点词汇分析完成...', percentage: 95 });
     } catch (error) {
-      console.log('[词汇] 快速分析失败，使用默认词汇:', error.message);
+      console.log('[词汇] 精准分析失败，使用默认词汇:', error.message);
       sendProgressToClient(clientId, { type: 'progress', stage: '⚠️ 词汇分析失败，使用默认词汇...', percentage: 90 });
       vocabularyAnalysis = [
         {
@@ -578,6 +696,10 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         }
       ];
     }
+
+    // 语法分析和学习建议功能已移除，简化处理流程
+    console.log('[处理] 跳过语法分析和学习建议生成...');
+    sendProgressToClient(clientId, { type: 'progress', stage: '✅ 词汇分析完成，处理即将完成...', percentage: 95 });
 
     // 计算处理时间
     const processingTime = Date.now() - startTime;

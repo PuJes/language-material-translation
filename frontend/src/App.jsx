@@ -51,18 +51,18 @@ function App() {
       };
 
       ws.current.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        console.log('WebSocket message received:', message);
+        const wsMessage = JSON.parse(event.data);
+        console.log('WebSocket message received:', wsMessage);
 
-        switch (message.type) {
+        switch (wsMessage.type) {
           case 'connection_ack':
-            setClientId(message.clientId);
-            console.log('Received clientId:', message.clientId);
+            setClientId(wsMessage.clientId);
+            console.log('Received clientId:', wsMessage.clientId);
             console.log('State after connection_ack:', { loading, result, processingStage, processingProgress });
             break;
           case 'progress':
-            setProcessingStage(message.stage);
-            setProcessingProgress(message.percentage);
+            setProcessingStage(wsMessage.stage);
+            setProcessingProgress(wsMessage.percentage);
             // 确保在接收到进度时，如果latestResultRef.current存在（意味着之前有结果），将其清空，并显示加载状态
             if (latestResultRef.current) setResult(null); 
             setLoading(true); // 确保loading为true
@@ -70,8 +70,8 @@ function App() {
             break;
           case 'completed':
             // 立即设置最终结果和处理时间
-            setResult(message.data); 
-            setProcessingTime(message.data.processingTime); 
+            setResult(wsMessage.data); 
+            setProcessingTime(wsMessage.data.processingTime); 
 
             // 设置最终进度和阶段
             setProcessingProgress(100); 
@@ -83,7 +83,7 @@ function App() {
                 setLoading(false);
                 setProcessingStage(''); 
                 message.success({
-                    content: `分析完成！用时 ${(message.data.processingTime / 1000).toFixed(1)} 秒`,
+                    content: `分析完成！用时 ${(wsMessage.data.processingTime / 1000).toFixed(1)} 秒`,
                     duration: 3
                 });
                 console.log('State after completed timeout:', { loading, result, processingStage, processingProgress });
@@ -91,7 +91,7 @@ function App() {
             break;
           case 'error':
             message.error({
-              content: `处理失败: ${message.message}`,
+              content: `处理失败: ${wsMessage.message}`,
               duration: 5
             });
             setLoading(false);
@@ -101,7 +101,7 @@ function App() {
             console.log('State after error:', { loading, result, processingStage, processingProgress });
             break;
           default:
-            console.log('Unknown message type:', message.type);
+            console.log('Unknown message type:', wsMessage.type);
         }
       };
 
@@ -476,7 +476,18 @@ function App() {
       
       paragraph.sentences.forEach((sentence, sentenceIndex) => {
         content += `${sentenceIndex + 1}. ${sentence.text}\n`;
-        content += `   解释：${sentence.explanation}\n\n`;
+        
+        // 处理解释对象
+        if (typeof sentence.explanation === 'object' && sentence.explanation) {
+          content += `   含义：${sentence.explanation.meaning || '暂无解释'}\n`;
+          content += `   语法：${sentence.explanation.grammar || '暂无语法说明'}\n`;
+          content += `   词汇：${sentence.explanation.vocabulary || '暂无词汇说明'}\n`;
+          content += `   用法：${sentence.explanation.usage || '暂无用法说明'}\n`;
+          content += `   建议：${sentence.explanation.tip || '暂无学习建议'}\n`;
+        } else {
+          content += `   解释：${sentence.explanation || '暂无解释'}\n`;
+        }
+        content += '\n';
       });
       
       content += '\n';
@@ -694,11 +705,21 @@ function App() {
                         <div class="paragraph-title">
                             Section ${paragraph.id}: ${paragraph.title}
                         </div>
-                        ${paragraph.sentences.map(sentence => `
-                            <div class="sentence" onclick="showExplanation('${sentence.id}', '${sentence.text.replace(/'/g, "\\'")}', '${sentence.explanation.replace(/'/g, "\\'")}')">
-                                ${highlightVocabulary(sentence.text, vocabularyAnalysis)}
-                            </div>
-                        `).join('')}
+                        ${paragraph.sentences.map(sentence => {
+                            // 处理解释对象，转换为字符串
+                            let explanationText = '';
+                            if (typeof sentence.explanation === 'object' && sentence.explanation) {
+                                explanationText = sentence.explanation.meaning || '暂无解释';
+                            } else {
+                                explanationText = sentence.explanation || '暂无解释';
+                            }
+                            
+                            return `
+                                <div class="sentence" onclick="showExplanation('${sentence.id}', '${sentence.text.replace(/'/g, "\\'")}', '${explanationText.replace(/'/g, "\\'")}')">
+                                    ${highlightVocabulary(sentence.text, vocabularyAnalysis)}
+                                </div>
+                            `;
+                        }).join('')}
                     </div>
                 `).join('')}
             </div>
@@ -1299,8 +1320,30 @@ function App() {
                           </Paragraph>
                           <Paragraph>
                             <Text strong>英文解释：</Text><br/>
-                            {selectedSentence.explanation}
+                            {typeof selectedSentence.explanation === 'string' 
+                              ? selectedSentence.explanation 
+                              : selectedSentence.explanation?.meaning || '暂无解释'}
                           </Paragraph>
+                          {typeof selectedSentence.explanation === 'object' && selectedSentence.explanation && (
+                            <>
+                              <Paragraph>
+                                <Text strong>语法要点：</Text><br/>
+                                {selectedSentence.explanation.grammar || '暂无语法说明'}
+                              </Paragraph>
+                              <Paragraph>
+                                <Text strong>重点词汇：</Text><br/>
+                                {selectedSentence.explanation.vocabulary || '暂无词汇说明'}
+                              </Paragraph>
+                              <Paragraph>
+                                <Text strong>使用方法：</Text><br/>
+                                {selectedSentence.explanation.usage || '暂无用法说明'}
+                              </Paragraph>
+                              <Paragraph>
+                                <Text strong>学习建议：</Text><br/>
+                                {selectedSentence.explanation.tip || '暂无学习建议'}
+                              </Paragraph>
+                            </>
+                          )}
                         </div>
                       ) : selectedVocabulary ? (
                         <div className="explanation-content">

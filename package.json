@@ -8,7 +8,11 @@
     "build:all": "cd frontend && npm run build",
     "start:all": "cd backend && npm start",
     "dev:all": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:e2e": "cd test && npm install && npm run install:browsers && npm test",
+    "test:e2e:headed": "cd test && npm install && npm run install:browsers && npm run test:headed",
+    "test:e2e:debug": "cd test && npm install && npm run install:browsers && npm run test:debug",
+    "test:e2e:ui": "cd test && npm install && npm run install:browsers && npm run test:ui"
   },
   "keywords": [
     "language-learning",
@@ -36,6 +40,7 @@
   },
   "homepage": "https://github.com/PuJes/language-material-translation#readme",
   "dependencies": {
+    "@playwright/test": "^1.54.1",
     "axios": "^1.10.0"
   }
 }

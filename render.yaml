@@ -13,9 +13,10 @@ services:
         sync: false
       - key: PORT
         value: 3001
+    healthCheckPath: /health
 
   # 前端服务
-  - type: web
+  - type: static
     name: language-learning-frontend
     env: static
     plan: starter
@@ -23,4 +24,4 @@ services:
     staticPublishPath: frontend/dist
     envVars:
       - key: VITE_API_URL
-        value: https://language-learning-backend.onrender.com 
+        value: https://language-material-translation.onrender.com 

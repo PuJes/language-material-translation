@@ -1,27 +1,48 @@
 {
-  "name": "backend",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "language-learning-backend",
+  "version": "2.0.0",
+  "description": "语言学习助手后端服务 - 重构版本",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint src/",
+    "clean": "rm -rf logs/* uploads/*",
+    "backup": "cp -r src/ backup/src-$(date +%Y%m%d-%H%M%S)/"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "keywords": [
+    "language-learning",
+    "ai",
+    "websocket",
+    "express",
+    "nodejs"
+  ],
+  "author": "Language Learning Assistant Team",
+  "license": "MIT",
   "dependencies": {
-    "axios": "^1.10.0",
+    "axios": "^1.6.0",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.0",
-    "express": "^5.1.0",
-    "multer": "^2.0.1",
-    "uuid": "^11.1.0",
-    "ws": "^8.18.3"
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.1",
+    "ws": "^8.14.2"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
-  }
+    "nodemon": "^3.0.1",
+    "eslint": "^8.54.0"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/language-learning-assistant.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/language-learning-assistant/issues"
+  },
+  "homepage": "https://github.com/your-username/language-learning-assistant#readme"
 }

@@ -40,88 +40,94 @@ function App() {
     latestResultRef.current = result;
   }, [result]);
 
-  // WebSocket 连接和消息处理
+  // WebSocket 连接和消息处理 - 增强版
   useEffect(() => {
     // 确保只在客户端环境运行
     if (typeof window !== 'undefined') {
-      ws.current = new WebSocket('ws://localhost:3001');
+      let reconnectAttempts = 0;
+      const maxReconnectAttempts = 5;
+      const reconnectDelay = 2000;
+      
+      const connectWebSocket = () => {
+        try {
+          ws.current = new WebSocket('ws://localhost:3001');
 
-      ws.current.onopen = () => {
-        console.log('WebSocket Connected');
-      };
+          ws.current.onopen = () => {
+            console.log('WebSocket Connected');
+            reconnectAttempts = 0; // 重置重连计数
+          };
 
-      ws.current.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        console.log('WebSocket message received:', message);
+          ws.current.onclose = (event) => {
+            console.log('WebSocket Disconnected:', event.code, event.reason);
+            
+            // 只在非正常关闭时重连
+            if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
+              reconnectAttempts++;
+              console.log(`WebSocket重连尝试 ${reconnectAttempts}/${maxReconnectAttempts}`);
+              setTimeout(connectWebSocket, reconnectDelay * reconnectAttempts);
+            }
+          };
 
-        switch (message.type) {
-          case 'connection_ack':
-            setClientId(message.clientId);
-            console.log('Received clientId:', message.clientId);
-            console.log('State after connection_ack:', { loading, result, processingStage, processingProgress });
-            break;
-          case 'progress':
-            setProcessingStage(message.stage);
-            setProcessingProgress(message.percentage);
-            // 确保在接收到进度时，如果latestResultRef.current存在（意味着之前有结果），将其清空，并显示加载状态
-            if (latestResultRef.current) setResult(null); 
-            setLoading(true); // 确保loading为true
-            console.log('State after progress:', { loading, result, processingStage, processingProgress });
-            break;
-          case 'completed':
-            // 立即设置最终结果和处理时间
-            setResult(message.data); 
-            setProcessingTime(message.data.processingTime); 
+          ws.current.onerror = (error) => {
+            console.error('WebSocket Error:', error);
+          };
 
-            // 设置最终进度和阶段
-            setProcessingProgress(100); 
-            setProcessingStage('✅ 处理完成！正在展示结果...'); 
+          ws.current.onmessage = (event) => {
+            try {
+              const message = JSON.parse(event.data);
+              console.log('WebSocket message received:', message);
 
-            // 使用 setTimeout 确保 React 有时间更新 UI with new result 
-            // 并且避免由于 DOM 渲染延迟导致页面回闪
-            setTimeout(() => {
-                setLoading(false);
-                setProcessingStage(''); 
-                message.success({
-                    content: `分析完成！用时 ${(message.data.processingTime / 1000).toFixed(1)} 秒`,
-                    duration: 3
-                });
-                console.log('State after completed timeout:', { loading, result, processingStage, processingProgress });
-            }, 50); // 微小延迟，确保UI渲染平滑
-            break;
-          case 'error':
-            message.error({
-              content: `处理失败: ${message.message}`,
-              duration: 5
-            });
-            setLoading(false);
-            setProcessingStage('');
-            setProcessingProgress(0);
-            setResult(null); // 错误时清空结果
-            console.log('State after error:', { loading, result, processingStage, processingProgress });
-            break;
-          default:
-            console.log('Unknown message type:', message.type);
+              switch (message.type) {
+                case 'connection_ack':
+                  setClientId(message.clientId);
+                  console.log('Received clientId:', message.clientId);
+                  break;
+                case 'progress':
+                  setProcessingStage(message.stage);
+                  setProcessingProgress(message.percentage);
+                  if (latestResultRef.current) setResult(null); 
+                  setLoading(true);
+                  break;
+                case 'completed':
+                  setResult(message.data); 
+                  setProcessingTime(message.data.processingTime); 
+                  setProcessingProgress(100); 
+                  setProcessingStage('✅ 处理完成！正在展示结果...'); 
+
+                  setTimeout(() => {
+                      setLoading(false);
+                      setProcessingStage(''); 
+                      message.success({
+                          content: `分析完成！用时 ${(message.data.processingTime / 1000).toFixed(1)} 秒`,
+                          duration: 3
+                      });
+                  }, 50);
+                  break;
+                case 'error':
+                  message.error({
+                    content: `处理失败: ${message.message}`,
+                    duration: 5
+                  });
+                  setLoading(false);
+                  setProcessingStage('');
+                  setProcessingProgress(0);
+                  setResult(null);
+                  break;
+                default:
+                  console.log('Unknown message type:', message.type);
+              }
+            } catch (error) {
+              console.error('WebSocket message parsing error:', error);
+            }
+          };
+        } catch (error) {
+          console.error('WebSocket connection error:', error);
         }
       };
 
-      ws.current.onclose = () => {
-        console.log('WebSocket Disconnected');
-        console.log('State after WebSocket close:', { loading, result, processingStage, processingProgress });
-        // 如果是意外断开，可以考虑重新连接逻辑
-      };
+      connectWebSocket();
 
-      ws.current.onerror = (error) => {
-        console.error('WebSocket Error:', error);
-        message.error('WebSocket 连接错误，请检查网络或后端服务');
-        setLoading(false);
-        setProcessingStage('');
-        setProcessingProgress(0);
-        setResult(null); // 错误时清空结果
-        console.log('State after WebSocket error:', { loading, result, processingStage, processingProgress });
-      };
-
-      // 组件卸载时关闭 WebSocket 连接
+      // 清理函数
       return () => {
         if (ws.current) {
           ws.current.close();

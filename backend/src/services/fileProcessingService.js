@@ -43,29 +43,30 @@ class FileProcessingService {
       const content = fs.readFileSync(file.path, 'utf-8');
       const ext = path.extname(file.originalname).toLowerCase();
 
-      // 解析文件
+      // 发送文件解析进度
+      websocketService.sendProgress(clientId, '📄 正在解析文件内容...', 12);
+
+      // 解析文件并进行AI分句
       let sentences = [];
       if (ext === '.srt') {
-        sentences = this.parseSRT(content);
+        websocketService.sendProgress(clientId, '🎬 正在处理字幕文件...', 15);
+        sentences = await this.parseSRT(content, clientId);
       } else if (ext === '.txt') {
-        sentences = this.parseTXT(content);
+        websocketService.sendProgress(clientId, '📝 正在处理文本文件...', 15);
+        sentences = await this.parseTXT(content, clientId);
       }
 
       if (sentences.length === 0) {
         throw new Error('文件内容为空或格式不正确');
       }
 
-      Logger.info('文件解析完成', { sentenceCount: sentences.length });
-      websocketService.sendProgress(clientId, '✅ 文件解析完成，开始智能分析...', 20);
+      Logger.info('文件解析和AI分句完成', { sentenceCount: sentences.length });
+      websocketService.sendProgress(clientId, '✅ 智能分句完成，开始智能分段和标题生成...', 20);
 
-      // 分组为段落
-      const paragraphs = this.groupIntoParagraphs(sentences);
-      Logger.info('段落分组完成', { paragraphCount: paragraphs.length });
-
-      // 生成段落标题
-      websocketService.sendProgress(clientId, '🎯 正在生成智能标题...', 25);
-      await aiService.generateParagraphTitles(paragraphs, englishLevel, clientId);
-      websocketService.sendProgress(clientId, '✅ 智能标题生成完成', 30);
+      // 智能分段并生成段落标题
+      websocketService.sendProgress(clientId, '🎯 正在智能分段和生成标题...', 25);
+      const paragraphs = await aiService.generateParagraphsWithTitles(sentences, englishLevel, clientId);
+      websocketService.sendProgress(clientId, '✅ 智能分段和标题生成完成', 30);
 
       // 生成句子解释
       const allSentences = paragraphs.flatMap(p => p.sentences);
@@ -144,104 +145,142 @@ class FileProcessingService {
   }
 
   /**
-   * 解析SRT文件
+   * 解析SRT文件（集成AI智能分句）
    * @param {string} content - 文件内容
-   * @returns {Array} 句子数组
+   * @param {string} clientId - 客户端ID（用于进度反馈）
+   * @returns {Promise<Array>} 句子数组
    */
-  parseSRT(content) {
+  async parseSRT(content, clientId = null) {
     try {
+      Logger.info('开始解析SRT文件', { contentLength: content.length, clientId });
+
+      // 第一步：提取所有字幕文本内容（忽略时间戳）
       const lines = content.split('\n');
-      const subtitles = [];
+      const textLines = [];
       let current = {};
 
       for (let line of lines) {
         line = line.trim();
         if (!line) {
           if (current.text) {
-            subtitles.push(current);
+            textLines.push(current.text);
             current = {};
           }
           continue;
         }
 
         if (/^\d+$/.test(line)) {
-          if (current.text) subtitles.push(current);
-          current = { id: parseInt(line), text: '' };
+          // 字幕序号行
+          if (current.text) {
+            textLines.push(current.text);
+          }
+          current = { text: '' };
         } else if (line.includes('-->')) {
-          current.timeRange = line;
+          // 时间戳行，忽略（不保留时间戳信息）
+          continue;
         } else {
+          // 字幕文本行
           current.text = current.text ? current.text + ' ' + line : line;
         }
       }
 
-      if (current.text) subtitles.push(current);
+      // 添加最后一个字幕文本
+      if (current.text) {
+        textLines.push(current.text);
+      }
 
-      const sentences = subtitles.map(s => ({ 
-        id: s.id, 
-        text: s.text.replace(/\s+/g, ' ').trim() 
-      }));
+      // 第二步：合并所有文本为一个完整文本
+      const fullText = textLines
+        .map(text => text.replace(/\s+/g, ' ').trim()) // 规范化空格
+        .filter(text => text.length > 0) // 过滤空文本
+        .join(' '); // 用空格连接
 
-      Logger.info('SRT文件解析成功', { subtitleCount: subtitles.length });
+      if (!fullText) {
+        throw new Error('SRT文件中没有有效的文本内容');
+      }
+
+      Logger.info('SRT文件文本提取完成', { 
+        originalSubtitles: textLines.length,
+        fullTextLength: fullText.length 
+      });
+
+      // 第三步：使用AI进行智能分句
+      Logger.info('开始AI分句处理', { textLength: fullText.length });
+      const sentences = await aiService.splitSentences(fullText, clientId);
+
+      Logger.success('SRT文件解析和分句完成', { 
+        originalSubtitles: textLines.length,
+        finalSentences: sentences.length 
+      });
+
       return sentences;
 
     } catch (error) {
       Logger.error('SRT文件解析失败', { error: error.message });
-      throw new Error('SRT文件格式错误');
+      
+      // 根据错误类型提供更具体的错误信息
+      if (error.message.includes('分句处理失败')) {
+        throw new Error('AI分句处理失败，请稍后重试');
+      } else if (error.message.includes('文本过长')) {
+        throw new Error('SRT文件内容过长，无法处理');
+      } else {
+        throw new Error('SRT文件格式错误或处理失败');
+      }
     }
   }
 
   /**
-   * 解析TXT文件
+   * 解析TXT文件（集成AI智能分句）
    * @param {string} content - 文件内容
-   * @returns {Array} 句子数组
+   * @param {string} clientId - 客户端ID（用于进度反馈）
+   * @returns {Promise<Array>} 句子数组
    */
-  parseTXT(content) {
+  async parseTXT(content, clientId = null) {
     try {
-      // 改进的句子分割算法
-      const sentences = content
-        .replace(/\r\n/g, '\n')
-        .replace(/\r/g, '\n')
-        .split(/[.!?]+\s*\n|\n\s*\n/)
-        .filter(s => s.trim())
-        .map((text, index) => ({
-          id: index + 1,
-          text: text.trim()
-        }))
-        .filter(s => s.text.length > 10); // 过滤太短的句子
+      Logger.info('开始解析TXT文件', { contentLength: content.length, clientId });
 
-      Logger.info('TXT文件解析成功', { sentenceCount: sentences.length });
+      // 第一步：清理和规范化文本
+      const cleanedText = content
+        .replace(/\r\n/g, '\n') // 统一换行符
+        .replace(/\r/g, '\n')   // 统一换行符
+        .replace(/\s+/g, ' ')   // 规范化空格
+        .trim();                // 去除首尾空格
+
+      if (!cleanedText) {
+        throw new Error('TXT文件中没有有效的文本内容');
+      }
+
+      Logger.info('TXT文件文本清理完成', { 
+        originalLength: content.length,
+        cleanedLength: cleanedText.length 
+      });
+
+      // 第二步：使用AI进行智能分句
+      Logger.info('开始AI分句处理', { textLength: cleanedText.length });
+      const sentences = await aiService.splitSentences(cleanedText, clientId);
+
+      Logger.success('TXT文件解析和分句完成', { 
+        originalLength: content.length,
+        finalSentences: sentences.length 
+      });
+
       return sentences;
 
     } catch (error) {
       Logger.error('TXT文件解析失败', { error: error.message });
-      throw new Error('TXT文件格式错误');
+      
+      // 根据错误类型提供更具体的错误信息
+      if (error.message.includes('分句处理失败')) {
+        throw new Error('AI分句处理失败，请稍后重试');
+      } else if (error.message.includes('文本过长')) {
+        throw new Error('TXT文件内容过长，无法处理');
+      } else {
+        throw new Error('TXT文件格式错误或处理失败');
+      }
     }
   }
 
-  /**
-   * 分组为段落
-   * @param {Array} sentences - 句子数组
-   * @returns {Array} 段落数组
-   */
-  groupIntoParagraphs(sentences) {
-    const paragraphs = [];
-    const perParagraph = Math.min(4, Math.max(2, Math.ceil(sentences.length / 10)));
 
-    for (let i = 0; i < sentences.length; i += perParagraph) {
-      paragraphs.push({
-        id: Math.floor(i / perParagraph) + 1,
-        sentences: sentences.slice(i, i + perParagraph),
-        title: ''
-      });
-    }
-
-    Logger.info('段落分组完成', { 
-      paragraphCount: paragraphs.length, 
-      sentencesPerParagraph: perParagraph 
-    });
-    
-    return paragraphs;
-  }
 
   /**
    * 清理临时文件

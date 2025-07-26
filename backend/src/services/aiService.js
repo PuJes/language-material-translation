@@ -94,66 +94,226 @@ class AIService {
   }
 
   /**
-   * 生成段落标题
-   * @param {Array} paragraphs - 段落数组
+   * 使用DeepSeek AI进行智能分句
+   * @param {string} text - 需要分句的完整文本
+   * @param {string} clientId - 客户端ID（用于进度反馈）
+   * @param {number} splitCount - 当前分割次数（递归参数）
+   * @returns {Promise<Array>} 分句结果数组
+   */
+  async splitSentences(text, clientId = null, splitCount = 0) {
+    // 检查文本长度，避免无限递归
+    if (text.trim().length === 0) {
+      throw new Error('输入文本为空');
+    }
+
+    // 最大分割次数限制（避免无限递归）
+    const maxSplitCount = 5;
+    if (splitCount > maxSplitCount) {
+      throw new Error('文本过长，无法进行分句处理');
+    }
+
+    // 构建分句提示词
+    const prompt = this.buildSentenceSplitPrompt();
+
+    try {
+      Logger.info('开始AI分句处理', { 
+        textLength: text.length, 
+        splitCount,
+        clientId 
+      });
+
+      // 调用DeepSeek API进行分句
+      const response = await this.callDeepSeekAPI(prompt, text);
+      
+      // 解析分句结果
+      const sentences = this.parseSentenceResponse(response);
+      
+      // 过滤和清理分句结果
+      const cleanedSentences = sentences
+        .filter(sentence => sentence.trim().length > 0) // 过滤空句子
+        .map((sentence, index) => ({
+          id: index + 1, // 重新生成ID
+          text: sentence.trim() // 清理前后空格
+        }));
+
+      Logger.success('AI分句处理成功', { 
+        originalLength: text.length,
+        sentenceCount: cleanedSentences.length,
+        splitCount 
+      });
+
+      return cleanedSentences;
+
+    } catch (error) {
+      Logger.error('AI分句处理失败', { 
+        error: error.message,
+        textLength: text.length,
+        splitCount 
+      });
+
+      // 检查是否是输出长度过长错误
+      if (this.isOutputTooLongError(error) && splitCount < maxSplitCount) {
+        Logger.info('检测到输出长度过长，开始分割文本', { splitCount: splitCount + 1 });
+        
+        // 分割文本为两部分
+        const midPoint = Math.floor(text.length / 2);
+        
+        // 寻找合适的分割点（避免在单词中间分割）
+        let splitPoint = midPoint;
+        while (splitPoint > 0 && text[splitPoint] !== ' ' && text[splitPoint] !== '\n') {
+          splitPoint--;
+        }
+        
+        // 如果找不到合适的分割点，使用中点
+        if (splitPoint === 0) {
+          splitPoint = midPoint;
+        }
+
+        const part1 = text.substring(0, splitPoint).trim();
+        const part2 = text.substring(splitPoint).trim();
+
+        Logger.debug('文本分割信息', {
+          originalLength: text.length,
+          part1Length: part1.length,
+          part2Length: part2.length,
+          splitPoint
+        });
+
+        // 递归处理两部分
+        const [sentences1, sentences2] = await Promise.all([
+          this.splitSentences(part1, clientId, splitCount + 1),
+          this.splitSentences(part2, clientId, splitCount + 1)
+        ]);
+
+        // 合并结果并重新分配ID
+        const combinedSentences = [...sentences1, ...sentences2].map((sentence, index) => ({
+          id: index + 1,
+          text: sentence.text
+        }));
+
+        Logger.success('分割文本处理成功', { 
+          totalSentences: combinedSentences.length,
+          part1Sentences: sentences1.length,
+          part2Sentences: sentences2.length 
+        });
+
+        return combinedSentences;
+      }
+
+      // 其他错误直接抛出
+      throw new Error(`分句处理失败: ${error.message}`);
+    }
+  }
+
+  /**
+   * 构建分句提示词
+   * @returns {string} 分句提示词
+   */
+  buildSentenceSplitPrompt() {
+    return `你是专业的文本分句助手。请将用户提供的文本按照语义和语法结构进行智能分句，保持句子的完整性和自然性。
+
+要求：
+1. 按语义单元分句，不要破坏语法结构
+2. 保持原文的意思和语气不变
+3. 每行输出一个完整句子
+4. 不要添加、删除或修改任何标点符号，保持原文风格
+5. 不要添加序号、标记或其他格式
+6. 直接输出分句结果，每句一行
+
+注意：
+- 对于字幕文件，请将相关的字幕块合并成完整句子
+- 对于文本文件，请按照自然的语义边界分句
+- 保持原文的连贯性和完整性`;
+  }
+
+  /**
+   * 解析分句响应结果
+   * @param {string} response - AI响应内容
+   * @returns {Array} 分句数组
+   */
+  parseSentenceResponse(response) {
+    // 按行分割并过滤空行
+    const sentences = response
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .filter(line => !line.match(/^\d+[\.\)]/)) // 过滤掉序号行
+      .filter(line => !line.startsWith('-')) // 过滤掉列表标记
+      .filter(line => line.length > 5); // 过滤掉过短的句子
+
+    Logger.debug('分句响应解析', {
+      rawResponse: response,
+      parsedSentences: sentences.length,
+      sentences: sentences.slice(0, 3) // 记录前3句用于调试
+    });
+
+    return sentences;
+  }
+
+  /**
+   * 检查是否是输出长度过长错误
+   * @param {Error} error - 错误对象
+   * @returns {boolean} 是否是输出长度过长错误
+   */
+  isOutputTooLongError(error) {
+    const errorMessage = error.message.toLowerCase();
+    return errorMessage.includes('output') && errorMessage.includes('too long') ||
+           errorMessage.includes('length') && errorMessage.includes('limit') ||
+           errorMessage.includes('token') && errorMessage.includes('limit') ||
+           errorMessage.includes('max_tokens');
+  }
+
+
+
+  /**
+   * 智能分段并生成段落标题
+   * @param {Array} sentences - 句子数组
    * @param {string} englishLevel - 英语水平
    * @param {string} clientId - 客户端ID
    * @returns {Promise<Array>} 处理后的段落数组
    */
-  async generateParagraphTitles(paragraphs, englishLevel, clientId) {
-    Logger.info('开始生成段落标题', { 
-      paragraphCount: paragraphs.length, 
+  async generateParagraphsWithTitles(sentences, englishLevel, clientId) {
+    Logger.info('开始智能分段和标题生成', { 
+      sentenceCount: sentences.length, 
       englishLevel,
       clientId 
     });
 
-    const textsForTitles = paragraphs.map(p => 
-      p.sentences.map(s => s.text).join(' ')
-    );
-
-    const fullContext = textsForTitles.join(' ');
-    const contentType = this.detectContentType(fullContext);
-
-    const contextualPrompt = this.buildTitlePrompt(paragraphs, englishLevel, contentType);
+    const contextualPrompt = this.buildParagraphAndTitlePrompt(sentences, englishLevel);
 
     try {
       const response = await this.callDeepSeekAPI(contextualPrompt, '');
-      const titles = this.validateAndCleanJSON(response, 'array');
+      const result = this.validateAndCleanJSON(response, 'array');
 
-      if (Array.isArray(titles) && titles.length === paragraphs.length) {
-        titles.forEach((item, index) => {
-          paragraphs[index].title = item.title;
-          paragraphs[index].learningObjective = item.objective;
-          paragraphs[index].focusArea = item.focus;
-          paragraphs[index].relevance = item.relevance;
-        });
+      if (Array.isArray(result)) {
+        // 将AI返回的结果转换为段落结构
+        const paragraphs = result.map((item, index) => ({
+          id: index + 1,
+          sentences: item.sentences.map((sentenceText, sentenceIndex) => ({
+            id: sentenceIndex + 1,
+            text: sentenceText
+          })),
+          title: item.title,
+          learningObjective: item.objective,
+          focusArea: item.focus,
+          relevance: item.relevance
+        }));
 
-        Logger.success('段落标题生成成功', { 
-          count: paragraphs.length,
-          contentType 
+        Logger.success('智能分段和标题生成成功', { 
+          paragraphCount: paragraphs.length
         });
 
         return paragraphs;
       } else {
         Logger.error('返回格式不匹配', { 
-          expectedCount: paragraphs.length,
-          actualCount: Array.isArray(titles) ? titles.length : 'not array',
-          actualType: typeof titles,
-          titlesPreview: Array.isArray(titles) ? titles.slice(0, 3) : titles
+          actualType: typeof result,
+          resultPreview: result
         });
         throw new Error('返回格式不匹配');
       }
     } catch (error) {
-      Logger.error('段落标题生成失败', { error: error.message });
-      
-      // 尝试使用降级方案
-      try {
-        Logger.info('尝试使用降级标题生成方案');
-        return this.generateFallbackTitles(paragraphs, textsForTitles, contentType);
-      } catch (fallbackError) {
-        Logger.error('降级方案也失败', { error: fallbackError.message });
-        throw error; // 抛出原始错误
-      }
+      Logger.error('智能分段和标题生成失败', { error: error.message });
+      throw error; // 直接抛出错误，不使用降级方案
     }
   }
 
@@ -249,71 +409,51 @@ class AIService {
     }
   }
 
-  /**
-   * 检测内容类型
-   * @param {string} text - 文本内容
-   * @returns {string} 内容类型
-   */
-  detectContentType(text) {
-    const lowerText = text.toLowerCase();
-    
-    if (lowerText.includes('movie') || lowerText.includes('film') || lowerText.includes('scene')) {
-      return 'movie dialogue and scenes';
-    } else if (lowerText.includes('academic') || lowerText.includes('research') || lowerText.includes('study')) {
-      return 'academic content';
-    } else if (lowerText.includes('business') || lowerText.includes('meeting') || lowerText.includes('work')) {
-      return 'business communication';
-    } else if (lowerText.includes('daily') || lowerText.includes('conversation') || lowerText.includes('chat')) {
-      return 'daily conversation';
-    } else if (lowerText.includes('travel') || lowerText.includes('trip') || lowerText.includes('hotel')) {
-      return 'travel situations';
-    } else {
-      return 'general English content';
-    }
-  }
 
   /**
-   * 构建标题生成提示词
-   * @param {Array} paragraphs - 段落数组
+   * 构建分段和标题生成提示词
+   * @param {Array} sentences - 句子数组
    * @param {string} englishLevel - 英语水平
-   * @param {string} contentType - 内容类型
    * @returns {string} 提示词
    */
-  buildTitlePrompt(paragraphs, englishLevel, contentType) {
-    const textsForTitles = paragraphs.map(p => 
-      p.sentences.map(s => s.text).join(' ')
-    );
+  buildParagraphAndTitlePrompt(sentences, englishLevel) {
+    const sentenceTexts = sentences.map(s => s.text);
 
     return `You are a JSON-only response AI. You must return ONLY valid JSON without any explanation, introduction, or additional text.
 
-TASK: Generate intelligent section titles for English learning based on ${englishLevel} proficiency level.
+TASK: Intelligently group sentences into meaningful paragraphs and generate titles for each paragraph.
 
-CONTEXT: This is part of a larger English learning material focused on ${contentType}.
+CONTEXT: This is part of a larger English learning material.
 
 LEARNING OBJECTIVES:
 - Target level: ${englishLevel}
-- Content type: ${contentType}
 - Focus: ${this.getLevelFocus(englishLevel)}
 
-IMPORTANT: You must generate EXACTLY ${paragraphs.length} titles, one for each section.
+REQUIREMENTS:
+1. Group sentences into serveral meaningful paragraphs based on semantic coherence
+2. Each paragraph should contain serveral sentences that are thematically related
+3. Generate an engaging title for each paragraph
+4. Ensure logical flow and natural transitions between paragraphs
 
-For each section, create:
+For each paragraph, create:
 1. An engaging English title (3-5 words)
 2. A clear learning objective
 3. Key grammar/vocabulary focus
-4. Relevance to ${contentType}
+4. Relevance to the content
+5. The sentences that belong to this paragraph
 
-Section contents to analyze:
-${textsForTitles.map((text, i) => 
-  `${i+1}. Content preview: ${text.substring(0, 100)}...`
+Sentences to analyze and group:
+${sentenceTexts.map((text, i) => 
+  `${i+1}. "${text}"`
 ).join('\n')}
 
-CRITICAL: Return ONLY the JSON array below with EXACTLY ${paragraphs.length} items, no other text:
+CRITICAL: Return ONLY the JSON array below, no other text:
 [{
   "title": "Engaging English Title",
   "objective": "Students will learn to...",
   "focus": "past tense/vocabulary/phrasal verbs",
-  "relevance": "how this relates to ${contentType}"
+  "relevance": "how this relates to the content",
+  "sentences": ["sentence 1", "sentence 2", ...]
 }]`;
   }
 

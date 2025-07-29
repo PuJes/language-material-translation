@@ -168,6 +168,18 @@ function App() {
         return false;
       }
       
+      // 根据测试结果给出文件大小警告
+      const fileSize = file.size;
+      if (fileSize > 200) {
+        if (fileSize > 1000) {
+          message.warning(`文件较大 (${(fileSize/1024).toFixed(2)}KB)，根据测试可能会超时失败。建议使用更小的文件 (<200字节)。`);
+        } else {
+          message.info(`文件大小 (${(fileSize/1024).toFixed(2)}KB) 可能需要较长处理时间 (40-60秒)，请耐心等待。`);
+        }
+      } else {
+        message.success(`文件大小适中 (${fileSize}字节)，预计处理时间 40-50秒。`);
+      }
+      
       setFileList([file]);
       return false; // 阻止 Ant Design 自动上传
     },

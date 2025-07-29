@@ -33,9 +33,24 @@ const config = {
     model: 'deepseek-chat',
     maxTokens: 2000,
     temperature: 0.3,
-    timeout: 60000, // 增加到60秒
-    retries: 1, // 减少重试次数，避免长时间等待
-    keepAlive: true // 启用连接保持
+    timeout: 120000, // 增加到120秒，适应大文件处理
+    retries: 3, // 增加重试次数到3次
+    keepAlive: true, // 启用连接保持
+    // 新增：动态超时配置
+    dynamicTimeout: {
+      enabled: true, // 启用动态超时
+      baseTimeout: 60000, // 基础超时60秒
+      perCharacterTimeout: 0.1, // 每字符增加0.1毫秒
+      maxTimeout: 300000, // 最大超时5分钟
+      minTimeout: 30000 // 最小超时30秒
+    },
+    // 新增：智能重试配置
+    smartRetry: {
+      enabled: true, // 启用智能重试
+      exponentialBackoff: true, // 指数退避
+      maxBackoffDelay: 30000, // 最大退避延迟30秒
+      jitter: true // 添加随机抖动
+    }
   },
 
   // WebSocket配置

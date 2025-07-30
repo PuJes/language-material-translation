@@ -2,8 +2,7 @@ services:
   # 后端服务
   - type: web
     name: language-learning-backend
-    env: node
-    plan: starter
+    runtime: node
     buildCommand: cd backend && npm install
     startCommand: cd backend && node src/index.js
     envVars:
@@ -11,18 +10,14 @@ services:
         value: production
       - key: DEEPSEEK_API_KEY
         sync: false
-      - key: PORT
-        value: 3001
       - key: HOST
         value: 0.0.0.0
       - key: FRONTEND_URL
         value: https://language-learning-frontend.onrender.com
 
   # 前端服务
-  - type: web
+  - type: static
     name: language-learning-frontend
-    env: static
-    plan: starter
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: frontend/dist
     envVars:

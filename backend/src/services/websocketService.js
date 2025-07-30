@@ -19,25 +19,45 @@ class WebSocketService {
    * @param {object} server - HTTP服务器实例
    */
   initialize(server) {
-    this.wss = new WebSocket.Server({ server });
+    this.wss = new WebSocket.Server({ 
+      server,
+      verifyClient: (info) => {
+        // 验证WebSocket连接的来源
+        const origin = info.origin;
+        const allowedOrigins = config.cors.origins;
+        
+        if (!origin) {
+          Logger.warn('WebSocket连接被拒绝：缺少Origin头');
+          return false;
+        }
+        
+        const isAllowed = allowedOrigins.includes(origin);
+        if (!isAllowed) {
+          Logger.warn(`WebSocket连接被拒绝：不允许的Origin`, { origin, allowedOrigins });
+        }
+        
+        return isAllowed;
+      }
+    });
     
-    this.wss.on('connection', (ws) => {
-      this.handleConnection(ws);
+    this.wss.on('connection', (ws, req) => {
+      this.handleConnection(ws, req);
     });
 
-    Logger.success('WebSocket服务器已初始化');
+    Logger.success('WebSocket服务器已初始化', { allowedOrigins: config.cors.origins });
   }
 
   /**
    * 处理新连接
    * @param {object} ws - WebSocket连接对象
+   * @param {object} req - HTTP请求对象
    */
-  handleConnection(ws) {
+  handleConnection(ws, req) {
     const clientId = uuidv4();
     ws.clientId = clientId;
     this.clients.set(clientId, ws);
 
-    Logger.websocket('connected', clientId);
+    Logger.websocket('connected', clientId, { origin: req.headers.origin });
 
     // 发送连接确认
     this.sendToClient(clientId, {

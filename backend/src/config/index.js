@@ -15,8 +15,28 @@ const config = {
 
   // CORS配置
   cors: {
-    origins: ['http://localhost:3000', 'http://localhost:5173'],
-    credentials: true
+    origins: (() => {
+      const baseOrigins = [
+        'http://localhost:3000',
+        'http://localhost:5173'
+      ];
+      
+      // 在生产环境中添加Render前端URL
+      if (process.env.NODE_ENV === 'production') {
+        baseOrigins.push('https://language-learning-frontend.onrender.com');
+      }
+      
+      // 支持自定义前端URL环境变量
+      if (process.env.FRONTEND_URL) {
+        baseOrigins.push(process.env.FRONTEND_URL);
+      }
+      
+      return baseOrigins;
+    })(),
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    optionsSuccessStatus: 200 // 支持旧版浏览器
   },
 
   // 文件上传配置

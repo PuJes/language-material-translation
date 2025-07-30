@@ -568,6 +568,86 @@
   background: #a8a8a8;
 }
 
+/* 连接状态指示器样式 */
+.connection-status-indicator {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  min-width: 200px;
+  transition: all 0.3s ease;
+}
+
+.connection-status-indicator:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+}
+
+/* 错误状态样式 */
+.error-message-container {
+  background: linear-gradient(135deg, #fff2f0 0%, #ffebe6 100%);
+  border: 2px solid #ff4d4f;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 0;
+  animation: shake 0.5s ease-in-out;
+}
+
+.warning-message-container {
+  background: linear-gradient(135deg, #fff7e6 0%, #ffeaa7 100%);
+  border: 2px solid #faad14;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.success-message-container {
+  background: linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%);
+  border: 2px solid #52c41a;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+/* 重试按钮样式 */
+.retry-button {
+  background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.retry-button:hover {
+  background: linear-gradient(135deg, #40a9ff 0%, #69c0ff 100%);
+  transform: translateY(-1px);
+}
+
+/* 加载状态增强 */
+.loading-container {
+  position: relative;
+}
+
+.loading-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, transparent, rgba(102, 126, 234, 0.03), transparent);
+  animation: shimmer 2s infinite;
+  pointer-events: none;
+}
+
 /* 动画关键帧 */
 @keyframes fadeInUp {
   from {
@@ -580,7 +660,32 @@
   }
 }
 
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .fade-in-up {
   animation: fadeInUp 0.6s ease-out;
+}
+
+.pulse {
+  animation: pulse 2s infinite;
+}
+
+/* 响应式连接状态指示器 */
+@media (max-width: 768px) {
+  .connection-status-indicator {
+    top: 10px;
+    right: 10px;
+    min-width: 160px;
+    padding: 8px 12px;
+  }
 }
 

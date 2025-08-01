@@ -1,5 +1,0 @@
-Hello, welcome to our English learning platform. We help students improve their language skills through interactive materials.
-
-This is a simple text file for testing our language learning application. The system will analyze this content and generate learning materials.
-
-Good luck with your English studies!

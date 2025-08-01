@@ -36,23 +36,23 @@ class FileProcessingService {
       // 验证文件
       this.validateFile(file);
 
-      // 发送初始进度
-      websocketService.sendProgress(clientId, '📤 正在上传和解析文件...', 10);
+      // 日志进度（替代websocket）
+      Logger.info('开始上传和解析文件...', { clientId });
 
       // 读取文件内容
       const content = fs.readFileSync(file.path, 'utf-8');
       const ext = path.extname(file.originalname).toLowerCase();
 
-      // 发送文件解析进度
-      websocketService.sendProgress(clientId, '📄 正在解析文件内容...', 12);
+      // 日志文件解析进度
+      Logger.info('正在解析文件内容...', { clientId });
 
       // 解析文件并进行AI分句
       let sentences = [];
       if (ext === '.srt') {
-        websocketService.sendProgress(clientId, '🎬 正在处理字幕文件...', 15);
+        Logger.info('正在处理字幕文件...', { clientId });
         sentences = await this.parseSRT(content, clientId);
       } else if (ext === '.txt') {
-        websocketService.sendProgress(clientId, '📝 正在处理文本文件...', 15);
+        Logger.info('正在处理文本文件...', { clientId });
         sentences = await this.parseTXT(content, clientId);
       }
 
@@ -61,22 +61,22 @@ class FileProcessingService {
       }
 
       Logger.info('文件解析和AI分句完成', { sentenceCount: sentences.length });
-      websocketService.sendProgress(clientId, '✅ 智能分句完成，开始智能分段和标题生成...', 20);
+      Logger.info('智能分句完成，开始智能分段和标题生成...', { clientId });
 
       // 智能分段并生成段落标题
-      websocketService.sendProgress(clientId, '🎯 正在智能分段和生成标题...', 25);
+      Logger.info('正在智能分段和生成标题...', { clientId });
       const paragraphs = await aiService.generateParagraphsWithTitles(sentences, englishLevel, clientId);
-      websocketService.sendProgress(clientId, '✅ 智能分段和标题生成完成', 30);
+      Logger.info('智能分段和标题生成完成', { clientId });
 
       // 生成句子解释
       const allSentences = paragraphs.flatMap(p => p.sentences);
       await aiService.generateSentenceExplanations(allSentences, englishLevel, clientId);
 
       // 生成词汇分析
-      websocketService.sendProgress(clientId, '🎯 正在分析重点词汇...', 85);
+      Logger.info('正在分析重点词汇...', { clientId });
       const allText = sentences.map(s => s.text).join(' ');
       const vocabularyAnalysis = await aiService.generateVocabularyAnalysis(allText, englishLevel);
-      websocketService.sendProgress(clientId, '✨ 重点词汇分析完成...', 95);
+      Logger.info('重点词汇分析完成...', { clientId });
 
       // 计算处理时间
       const processingTime = Date.now() - startTime;
@@ -100,9 +100,8 @@ class FileProcessingService {
         processingTime: processingTime
       };
 
-      // 发送完成消息
-      websocketService.sendProgress(clientId, '🎉 处理完成，正在返回结果...', 100);
-      websocketService.sendCompleted(clientId, result);
+      // 处理完成日志
+      Logger.info('处理完成，返回结果...', { clientId });
 
       return result;
 
@@ -117,9 +116,6 @@ class FileProcessingService {
       if (file && file.path) {
         this.cleanupFile(file.path);
       }
-
-      // 发送错误消息
-      websocketService.sendError(clientId, error.message);
 
       throw error;
     }

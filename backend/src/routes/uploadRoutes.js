@@ -3,11 +3,13 @@
  * 定义文件上传相关的API端点
  */
 
+
 const express = require('express');
-const { upload, handleUploadError } = require('../middleware/upload');
-const uploadController = require('../controllers/uploadController');
+const { upload, handleUploadError } = require('../middleware/upload.js'); // 添加.js扩展名
+const uploadController = require('../controllers/uploadController.js'); // 添加.js扩展名
 
 const router = express.Router();
+
 
 // 文件上传路由
 router.post('/upload', 
@@ -28,4 +30,4 @@ router.get('/', uploadController.testRoute);
 // 网络诊断路由
 router.get('/network', uploadController.networkDiagnostic);
 
-module.exports = router; 
+module.exports = router; // 改为CommonJS导出

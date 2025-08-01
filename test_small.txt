@@ -1,3 +1,0 @@
-Hello world. This is a very small test file.
-We want to see if small files work better.
-Just a few sentences to test basic functionality.

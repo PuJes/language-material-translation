@@ -8,7 +8,7 @@ require('dotenv').config();
 const config = {
   // 服务器配置
   server: {
-    port: process.env.PORT || 3001,
+    port: process.env.PORT || 3000,
     host: process.env.HOST || '0.0.0.0', // 修改为0.0.0.0以支持云部署
     env: process.env.NODE_ENV || 'development'
   },

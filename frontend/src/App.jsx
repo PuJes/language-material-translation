@@ -2,14 +2,14 @@ import React, { useState, useEffect, useRef } from 'react'; // 引入 useEffect 
 import { Layout, Upload, Button, Select, message, Spin, Card, Typography, Row, Col, Space, Progress, Dropdown } from 'antd';
 import { UploadOutlined, DownloadOutlined, BookOutlined, RocketOutlined, FileTextOutlined, GlobalOutlined, ClockCircleOutlined, ThunderboltOutlined, FilePdfOutlined, FileExclamationOutlined } from '@ant-design/icons';
 import axios from 'axios';
-import { getApiUrl, API_CONFIG, validateConfiguration } from './config/api.js';
-import { getWebSocketManager, CONNECTION_STATES, MESSAGE_TYPES } from './services/websocket.js';
+import { getApiUrl, API_CONFIG } from './config/api.js';
 import './App.css';
 
 const { Header, Content } = Layout;
 const { Title, Paragraph, Text } = Typography;
 const { Option } = Select;
 const { Dragger } = Upload;
+
 
 /**
  * 主应用组件
@@ -25,9 +25,6 @@ function App() {
   const [selectedVocabulary, setSelectedVocabulary] = useState(null);
   const [processingTime, setProcessingTime] = useState(null);
   
-  // 连接状态管理
-  const [connectionStatus, setConnectionStatus] = useState('connecting'); // 'connecting', 'connected', 'disconnected', 'error'
-  const [connectionError, setConnectionError] = useState(null); // 存储连接错误信息
   const [retryCount, setRetryCount] = useState(0); // API重试次数
   const [isRetrying, setIsRetrying] = useState(false); // 是否正在重试
   
@@ -37,15 +34,6 @@ function App() {
   // 移除 timeoutWarning 状态
   // const [timeoutWarning, setTimeoutWarning] = useState(false);
 
-  // WebSocket 状态
-  const [clientId, setClientId] = useState(null); // 存储后端分配的客户端ID
-  const wsManager = useRef(null); // WebSocket manager instance
-  const latestResultRef = useRef(null); // useRef 存储最新的 result 状态
-
-  // 同步 latestResultRef with result state
-  useEffect(() => {
-    latestResultRef.current = result;
-  }, [result]);
 
   // 网络连接检查函数
   const checkNetworkConnectivity = async () => {
@@ -67,214 +55,6 @@ function App() {
     }
   };
 
-  // WebSocket 连接和消息处理 - 使用 WebSocket Manager
-  useEffect(() => {
-    // 验证配置
-    if (!validateConfiguration()) {
-      console.error('[App] Invalid API configuration, WebSocket connection aborted');
-      setConnectionStatus('error');
-      message.error({
-        content: '配置错误：无法连接到服务器。应用将以降级模式运行。',
-        duration: 10
-      });
-      return;
-    }
-
-    // 确保只在客户端环境运行
-    if (typeof window !== 'undefined') {
-      // 获取 WebSocket manager 实例
-      wsManager.current = getWebSocketManager({
-        maxReconnectAttempts: API_CONFIG.maxReconnectAttempts || 5,
-        reconnectDelay: API_CONFIG.reconnectDelay || 2000,
-        heartbeatInterval: 30000,
-        connectionTimeout: 10000
-      });
-
-      // 设置事件处理器
-      const handleStateChange = (newState, previousState) => {
-        console.log(`[App] WebSocket state changed: ${previousState} -> ${newState}`);
-        
-        // 映射 WebSocket manager 状态到应用状态
-        switch (newState) {
-          case CONNECTION_STATES.CONNECTING:
-            setConnectionStatus('connecting');
-            setConnectionError(null);
-            break;
-          case CONNECTION_STATES.CONNECTED:
-            setConnectionStatus('connected');
-            setConnectionError(null);
-            setRetryCount(0); // 重置重试计数
-            // 连接成功后清除之前的错误消息
-            message.success({
-              content: '🟢 WebSocket连接已建立，实时功能可用',
-              duration: 3
-            });
-            break;
-          case CONNECTION_STATES.DISCONNECTED:
-            setConnectionStatus('disconnected');
-            setConnectionError('连接已断开');
-            message.warning({
-              content: '🟡 WebSocket连接已断开，正在尝试重连...',
-              duration: 5
-            });
-            break;
-          case CONNECTION_STATES.ERROR:
-            setConnectionStatus('error');
-            setConnectionError('连接失败');
-            message.error({
-              content: '🔴 WebSocket连接失败，实时功能不可用。应用将以降级模式运行。',
-              duration: 8
-            });
-            break;
-          case CONNECTION_STATES.CLOSED:
-            setConnectionStatus('disconnected');
-            setConnectionError('连接已关闭');
-            message.info({
-              content: '⚪ WebSocket连接已关闭',
-              duration: 3
-            });
-            break;
-          default:
-            setConnectionStatus('disconnected');
-            setConnectionError('未知状态');
-        }
-      };
-
-      const handleMessage = (messageData) => {
-        console.log('[App] WebSocket message received:', messageData);
-
-        switch (messageData.type) {
-          case MESSAGE_TYPES.CONNECTION_ACK:
-            setClientId(messageData.clientId);
-            console.log('[App] Received clientId:', messageData.clientId);
-            break;
-          case MESSAGE_TYPES.PROGRESS:
-            setProcessingStage(messageData.stage);
-            setProcessingProgress(messageData.percentage);
-            if (latestResultRef.current) setResult(null); 
-            setLoading(true);
-            break;
-          case MESSAGE_TYPES.COMPLETED:
-            setResult(messageData.data); 
-            setProcessingTime(messageData.data.processingTime); 
-            setProcessingProgress(100); 
-            setProcessingStage('✅ 处理完成！正在展示结果...'); 
-
-            setTimeout(() => {
-                setLoading(false);
-                setProcessingStage(''); 
-                message.success({
-                    content: `分析完成！用时 ${(messageData.data.processingTime / 1000).toFixed(1)} 秒`,
-                    duration: 3
-                });
-            }, 50);
-            break;
-          case MESSAGE_TYPES.ERROR:
-            message.error({
-              content: `处理失败: ${messageData.message}`,
-              duration: 5
-            });
-            setLoading(false);
-            setProcessingStage('');
-            setProcessingProgress(0);
-            setResult(null);
-            break;
-          default:
-            console.log('[App] Unknown message type:', messageData.type);
-        }
-      };
-
-      const handleError = (error) => {
-        console.error('[App] WebSocket error:', error);
-        setConnectionStatus('error');
-        
-        // 提供具体的错误信息
-        let errorMessage = '连接失败';
-        
-        if (error.type === 'error' && error.target) {
-          const ws = error.target;
-          if (ws.readyState === WebSocket.CLOSED) {
-            errorMessage = '连接被关闭';
-            console.log('[App] WebSocket closed due to error');
-          } else if (ws.readyState === WebSocket.CLOSING) {
-            errorMessage = '连接正在关闭';
-          } else if (ws.readyState === WebSocket.CONNECTING) {
-            errorMessage = '连接超时';
-          }
-        } else if (error.message) {
-          if (error.message.includes('timeout')) {
-            errorMessage = '连接超时';
-          } else if (error.message.includes('refused')) {
-            errorMessage = '服务器拒绝连接';
-          } else if (error.message.includes('network')) {
-            errorMessage = '网络错误';
-          } else {
-            errorMessage = error.message;
-          }
-        }
-        
-        setConnectionError(errorMessage);
-      };
-
-      const handleClose = (event) => {
-        console.log('[App] WebSocket closed:', event.code, event.reason);
-        
-        // Provide user feedback based on close code
-        if (event.code === 1006) {
-          // Abnormal closure
-          console.warn('[App] WebSocket closed abnormally, connection may have been lost');
-        } else if (event.code === 1000) {
-          // Normal closure
-          console.log('[App] WebSocket closed normally');
-        }
-        
-        // State change handler will handle the UI updates
-      };
-
-      // 注册事件处理器
-      wsManager.current.addEventListener('onStateChange', handleStateChange);
-      wsManager.current.addEventListener('onMessage', handleMessage);
-      wsManager.current.addEventListener('onError', handleError);
-      wsManager.current.addEventListener('onClose', handleClose);
-
-      // 开始连接
-      wsManager.current.connect().catch(error => {
-        console.error('[App] Failed to connect WebSocket:', error);
-        setConnectionStatus('error');
-        
-        // Provide user-friendly error message based on error type
-        let errorMessage = 'WebSocket连接失败，实时功能不可用。';
-        
-        if (error.message.includes('timeout')) {
-          errorMessage += '连接超时，请检查网络连接。';
-        } else if (error.message.includes('refused')) {
-          errorMessage += '服务器拒绝连接，请稍后重试。';
-        } else {
-          errorMessage += '应用将以降级模式运行。';
-        }
-        
-        message.error({
-          content: errorMessage,
-          duration: 10
-        });
-      });
-
-      // 清理函数
-      return () => {
-        if (wsManager.current) {
-          // 移除事件监听器
-          wsManager.current.removeEventListener('onStateChange', handleStateChange);
-          wsManager.current.removeEventListener('onMessage', handleMessage);
-          wsManager.current.removeEventListener('onError', handleError);
-          wsManager.current.removeEventListener('onClose', handleClose);
-          
-          // 断开连接
-          wsManager.current.disconnect();
-          wsManager.current = null;
-        }
-      };
-    }
-  }, []); // 空依赖数组确保只运行一次
 
   // 英语水平选项配置
   const levelOptions = [
@@ -402,159 +182,83 @@ function App() {
       return;
     }
 
-    // 检查 WebSocket 连接状态并实现降级处理
-    const wsConnected = wsManager.current && wsManager.current.isConnected();
-    const currentClientId = wsManager.current ? wsManager.current.getClientId() : null;
-    
-    // WebSocket 连接状态处理
-    if (!wsConnected || !currentClientId) {
-      const statusMessages = {
-        connecting: 'WebSocket连接中，请稍候...',
-        disconnected: 'WebSocket连接已断开，正在重连中...',
-        error: 'WebSocket连接失败，将以降级模式处理文件（无实时进度显示）'
-      };
-      
-      const warningMessage = statusMessages[connectionStatus] || 'WebSocket连接异常，请稍候...';
-      
-      if (connectionStatus === 'error') {
-        // 连接错误时启用降级模式：允许上传但禁用实时功能
-        message.warning({
-          content: warningMessage + '。处理完成后将直接显示结果。',
-          duration: 8
-        });
-        console.log('[App] Operating in degraded mode - no real-time progress updates');
-      } else if (connectionStatus === 'connecting') {
-        // 连接中时给用户选择
-        message.info({
-          content: warningMessage + '您可以等待连接完成或继续上传（无实时进度）。',
-          duration: 6
-        });
-      } else {
-        // 其他状态时建议等待
-        message.warn({
-          content: warningMessage,
-          duration: 5
-        });
-        return;
-      }
-    } else {
-      // WebSocket 连接正常
-      console.log('[App] WebSocket connected, real-time features available');
-    }
-
     // 重置所有状态，开始加载
     setLoading(true);
     setResult(null);
     setProcessingTime(null);
     setProcessingStage('正在准备上传...');
     setProcessingProgress(0);
-    // 移除 setTimeoutWarning 相关代码
-    // setTimeoutWarning(false); 
     console.log('State before HTTP request:', { loading, result, processingStage, processingProgress });
+    
+    // 显示模拟进度
+    let progressValue = 0;
+    const progressInterval = setInterval(() => {
+      progressValue += Math.random() * 8 + 2; // 每次增加2-10%
+      if (progressValue >= 85) {
+        progressValue = 85; // 停在85%等待实际结果
+      }
+      setProcessingProgress(progressValue);
+      
+      // 更新处理阶段信息
+      if (progressValue < 30) {
+        setProcessingStage('正在分析文件结构...');
+      } else if (progressValue < 60) {
+        setProcessingStage('正在处理文本内容...');
+      } else if (progressValue < 85) {
+        setProcessingStage('正在生成学习材料...');
+      }
+    }, 1500);
+    
+    // 清理定时器的函数
+    const clearProgressInterval = () => {
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
+    };
     
     try {
       const formData = new FormData();
       formData.append('file', fileList[0]);
       formData.append('englishLevel', englishLevel);
-      formData.append('clientId', currentClientId || clientId); // 将 clientId 发送到后端
 
-      console.log('开始上传文件并处理...', { clientId: currentClientId || clientId });
+      console.log('开始上传文件并处理...');
       
       const apiUrl = getApiUrl('/api/upload');
       console.log('[HTTP] Uploading to:', apiUrl);
       
-      // 如果 WebSocket 不可用，启用降级模式
-      const degradedMode = !wsConnected || !currentClientId;
-      
-      if (degradedMode) {
-        console.log('[App] Operating in degraded mode - using HTTP-only processing');
-        setProcessingStage('正在处理文件（降级模式）...');
-        
-        // 在降级模式下，显示模拟进度
-        let progressValue = 0;
-        const progressInterval = setInterval(() => {
-          progressValue += Math.random() * 8 + 2; // 每次增加2-10%
-          if (progressValue >= 85) {
-            progressValue = 85; // 停在85%等待实际结果
-          }
-          setProcessingProgress(progressValue);
-          
-          // 更新处理阶段信息
-          if (progressValue < 30) {
-            setProcessingStage('正在分析文件结构（降级模式）...');
-          } else if (progressValue < 60) {
-            setProcessingStage('正在处理文本内容（降级模式）...');
-          } else if (progressValue < 85) {
-            setProcessingStage('正在生成学习材料（降级模式）...');
-          }
-        }, 1500);
-        
-        // 清理定时器的函数
-        const clearProgressInterval = () => {
-          if (progressInterval) {
-            clearInterval(progressInterval);
-          }
-        };
-        
-        try {
-          // 使用重试机制进行API调用
-          const response = await retryApiCall(async () => {
-            return await axios.post(apiUrl, formData, {
-              headers: {
-                'Content-Type': 'multipart/form-data',
-              },
-              timeout: API_CONFIG.timeout,
-            });
-          }, 3, 2000);
-          
-          clearProgressInterval();
-          
-          // 在降级模式下，HTTP 响应包含完整结果
-          if (response.data && response.data.result) {
-            setResult(response.data.result);
-            setProcessingTime(response.data.processingTime);
-            setProcessingProgress(100);
-            setProcessingStage('✅ 处理完成！');
-            
-            setTimeout(() => {
-              setLoading(false);
-              setProcessingStage('');
-              message.success({
-                content: `✅ 分析完成！用时 ${(response.data.processingTime / 1000).toFixed(1)} 秒（降级模式）`,
-                duration: 3
-              });
-            }, 500);
-          } else {
-            throw new Error('Invalid response format in degraded mode');
-          }
-          
-        } catch (error) {
-          clearProgressInterval();
-          throw error; // 重新抛出错误，让外层catch处理
-        }
-        
-      } else {
-        // WebSocket 可用，使用实时模式
-        const response = await retryApiCall(async () => {
-          return await axios.post(apiUrl, formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            },
-            timeout: API_CONFIG.timeout,
-          });
-        }, 3, 2000);
-        
-        console.log('HTTP 请求完成:', response.data);
-        console.log('State after HTTP request:', { loading, result, processingStage, processingProgress });
-        
-        // HTTP 请求成功只代表文件已接收，具体处理结果和进度将通过 WebSocket 传输
-        message.success({
-          content: `✅ 文件已上传，后端正在处理...`,
-          duration: 3
+      // 使用重试机制进行API调用
+      const response = await retryApiCall(async () => {
+        return await axios.post(apiUrl, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          timeout: API_CONFIG.timeout,
         });
+      }, 3, 2000);
+      
+      clearProgressInterval();
+      
+      // HTTP 响应包含完整结果
+      if (response.data && response.data.result) {
+        setResult(response.data.result);
+        setProcessingTime(response.data.processingTime);
+        setProcessingProgress(100);
+        setProcessingStage('✅ 处理完成！');
+        
+        setTimeout(() => {
+          setLoading(false);
+          setProcessingStage('');
+          message.success({
+            content: `✅ 分析完成！用时 ${(response.data.processingTime / 1000).toFixed(1)} 秒`,
+            duration: 3
+          });
+        }, 500);
+      } else {
+        throw new Error('Invalid response format');
       }
 
     } catch (error) {
+      clearProgressInterval();
       console.error('❌ [HTTP请求] 处理失败:', error);
       
       // 详细的错误处理和用户友好的错误消息
@@ -669,123 +373,6 @@ function App() {
   // 在组件渲染前，打印最新的状态值
   console.log('Rendering App with state:', { loading, result, processingStage, processingProgress });
 
-  /**
-   * 连接状态指示器组件
-   */
-  const ConnectionStatusIndicator = () => {
-    const getStatusConfig = () => {
-      switch (connectionStatus) {
-        case 'connected':
-          return {
-            color: '#52c41a',
-            icon: '🟢',
-            text: '实时连接正常',
-            description: 'WebSocket连接已建立，支持实时进度更新'
-          };
-        case 'connecting':
-          return {
-            color: '#1890ff',
-            icon: '🔵',
-            text: '正在连接...',
-            description: '正在建立WebSocket连接'
-          };
-        case 'disconnected':
-          return {
-            color: '#faad14',
-            icon: '🟡',
-            text: '连接已断开',
-            description: '正在尝试重新连接，功能可能受限'
-          };
-        case 'error':
-          return {
-            color: '#ff4d4f',
-            icon: '🔴',
-            text: '连接失败',
-            description: '实时功能不可用，将使用降级模式'
-          };
-        default:
-          return {
-            color: '#d9d9d9',
-            icon: '⚪',
-            text: '未知状态',
-            description: '连接状态未知'
-          };
-      }
-    };
-
-    const config = getStatusConfig();
-    
-    return (
-      <div style={{
-        position: 'fixed',
-        top: 20,
-        right: 20,
-        background: 'rgba(255, 255, 255, 0.95)',
-        backdropFilter: 'blur(10px)',
-        borderRadius: 12,
-        padding: '12px 16px',
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
-        border: `2px solid ${config.color}`,
-        zIndex: 1000,
-        minWidth: 200,
-        transition: 'all 0.3s ease'
-      }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          marginBottom: 4
-        }}>
-          <span style={{ fontSize: 14 }}>{config.icon}</span>
-          <span style={{ 
-            fontWeight: 600, 
-            color: config.color,
-            fontSize: 14
-          }}>
-            {config.text}
-          </span>
-          {isRetrying && (
-            <Spin size="small" style={{ marginLeft: 8 }} />
-          )}
-        </div>
-        <div style={{
-          fontSize: 12,
-          color: '#666',
-          lineHeight: 1.4
-        }}>
-          {config.description}
-          {connectionError && (
-            <div style={{ color: '#ff4d4f', marginTop: 4 }}>
-              错误: {connectionError}
-            </div>
-          )}
-          {retryCount > 0 && (
-            <div style={{ color: '#1890ff', marginTop: 4 }}>
-              重试次数: {retryCount}
-            </div>
-          )}
-          {(connectionStatus === 'error' || connectionStatus === 'disconnected') && (
-            <div style={{ marginTop: 8 }}>
-              <Button 
-                size="small" 
-                type="primary"
-                onClick={() => {
-                  if (wsManager.current) {
-                    wsManager.current.reconnect().catch(error => {
-                      console.error('[App] Manual reconnect failed:', error);
-                    });
-                  }
-                }}
-                style={{ fontSize: 11, height: 24, padding: '0 8px' }}
-              >
-                🔄 重连
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   /**
    * 句子点击处理
@@ -1416,59 +1003,9 @@ function App() {
     return highlightedText;
   };
 
-  // 连接状态指示器组件
-  const ConnectionStatus = () => {
-    const statusConfig = {
-      connecting: { color: '#faad14', text: '连接中...', icon: '🔄' },
-      connected: { color: '#52c41a', text: '实时连接', icon: '✅' },
-      disconnected: { color: '#fa8c16', text: '重连中...', icon: '⚠️' },
-      error: { color: '#ff4d4f', text: '降级模式', icon: '❌' }
-    };
-    
-    const status = statusConfig[connectionStatus] || statusConfig.error;
-    
-    // 手动重连功能
-    const handleManualReconnect = () => {
-      if (wsManager.current && connectionStatus !== 'connected') {
-        console.log('[App] Manual reconnection triggered');
-        wsManager.current.connect().catch(error => {
-          console.error('[App] Manual reconnection failed:', error);
-        });
-      }
-    };
-    
-    return (
-      <div 
-        style={{
-          position: 'fixed',
-          top: '10px',
-          right: '10px',
-          background: 'rgba(255, 255, 255, 0.95)',
-          padding: '6px 12px',
-          borderRadius: '16px',
-          fontSize: '12px',
-          color: status.color,
-          border: `1px solid ${status.color}`,
-          zIndex: 1000,
-          backdropFilter: 'blur(4px)',
-          cursor: connectionStatus === 'error' || connectionStatus === 'disconnected' ? 'pointer' : 'default',
-          transition: 'all 0.3s ease'
-        }}
-        onClick={connectionStatus === 'error' || connectionStatus === 'disconnected' ? handleManualReconnect : undefined}
-        title={connectionStatus === 'error' || connectionStatus === 'disconnected' ? '点击重新连接' : status.text}
-      >
-        {status.icon} {status.text}
-        {(connectionStatus === 'error' || connectionStatus === 'disconnected') && (
-          <span style={{ marginLeft: '4px', fontSize: '10px' }}>🔄</span>
-        )}
-      </div>
-    );
-  };
 
   return (
     <div className="app-background">
-      <ConnectionStatusIndicator />
-      <ConnectionStatus />
       <div className="main-container">
         {/* 现代化头部 */}
         <div className="app-header">
@@ -1542,52 +1079,6 @@ function App() {
                     选择学习材料
                   </Title>
                   
-                  {/* WebSocket状态通知 */}
-                  {connectionStatus === 'error' && (
-                    <div style={{
-                      background: 'linear-gradient(135deg, #fff2e8 0%, #ffebe0 100%)',
-                      border: '2px solid #ff9500',
-                      borderRadius: 12,
-                      padding: 12,
-                      marginBottom: 16,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8
-                    }}>
-                      <span style={{ fontSize: 16 }}>⚠️</span>
-                      <div>
-                        <Text strong style={{ color: '#d46b08', fontSize: 13 }}>
-                          实时功能不可用
-                        </Text>
-                        <div style={{ fontSize: 12, color: '#8c4a00', marginTop: 2 }}>
-                          将以降级模式运行，处理完成后直接显示结果（无实时进度）
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {connectionStatus === 'connected' && (
-                    <div style={{
-                      background: 'linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%)',
-                      border: '2px solid #52c41a',
-                      borderRadius: 12,
-                      padding: 12,
-                      marginBottom: 16,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8
-                    }}>
-                      <span style={{ fontSize: 16 }}>✅</span>
-                      <div>
-                        <Text strong style={{ color: '#389e0d', fontSize: 13 }}>
-                          实时功能已启用
-                        </Text>
-                        <div style={{ fontSize: 12, color: '#237804', marginTop: 2 }}>
-                          支持实时进度显示和状态更新
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </Col>
                 
                 <Col span={24}>
@@ -1717,44 +1208,6 @@ function App() {
               {/* 超时预警 */}
               {/* 移除超时预警相关代码 */}
 
-              {/* 连接状态提示 */}
-              {connectionStatus === 'error' && (
-                <div style={{
-                  background: 'linear-gradient(135deg, #fff2e8 0%, #ffebe0 100%)',
-                  border: '2px solid #ff9500',
-                  borderRadius: 12,
-                  padding: 16,
-                  margin: '16px auto',
-                  maxWidth: 400
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 16 }}>⚠️</span>
-                    <Text strong style={{ color: '#d46b08' }}>降级模式运行</Text>
-                  </div>
-                  <Text style={{ fontSize: 13, color: '#8c4a00' }}>
-                    实时连接不可用，无法显示详细进度。处理完成后将直接显示结果。
-                  </Text>
-                </div>
-              )}
-              
-              {connectionStatus === 'disconnected' && (
-                <div style={{
-                  background: 'linear-gradient(135deg, #fff7e6 0%, #ffeaa7 100%)',
-                  border: '2px solid #faad14',
-                  borderRadius: 12,
-                  padding: 16,
-                  margin: '16px auto',
-                  maxWidth: 400
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 16 }}>🔄</span>
-                    <Text strong style={{ color: '#d48806' }}>正在重连</Text>
-                  </div>
-                  <Text style={{ fontSize: 13, color: '#ad6800' }}>
-                    连接已断开，正在尝试重新连接以获取实时进度更新。
-                  </Text>
-                </div>
-              )}
 
               {/* 处理提示 */}
               <div className="loading-steps">
@@ -1891,8 +1344,6 @@ function App() {
                       setProcessingTime(null);
                       setProcessingStage('');
                       setProcessingProgress(0);
-                      // 移除 setTimeoutWarning 相关代码
-                      // setTimeoutWarning(false);
                     }}
                   >
                     🔄 重新分析

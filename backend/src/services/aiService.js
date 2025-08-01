@@ -8,6 +8,117 @@ const Logger = require('../utils/logger');
 const config = require('../config');
 const networkDiagnostic = require('../utils/networkDiagnostic');
 
+// 错误分类和恢复策略配置
+const ERROR_HANDLING_CONFIG = {
+  CONNECTION_RESET: {
+    matcher: (error) => error.code === 'ECONNRESET',
+    suggestion: '网络连接被重置，可能是网络不稳定或服务器负载过高',
+    action: '建议稍后重试或检查网络连接',
+    shouldRetry: true,
+    reason: '网络连接问题，通常可以通过重试解决'
+  },
+  DNS_ERROR: {
+    matcher: (error) => error.code === 'ENOTFOUND',
+    suggestion: '域名解析失败，可能是DNS问题或网络连接中断',
+    action: '建议检查网络连接或更换DNS服务器',
+    shouldRetry: true,
+    reason: 'DNS解析问题，重试可能有效'
+  },
+  TIMEOUT: {
+    matcher: (error) => error.code === 'ETIMEDOUT' || error.message.includes('timeout'),
+    suggestion: '请求超时，可能是网络延迟过高或服务器响应慢',
+    action: '建议增加超时时间或稍后重试',
+    shouldRetry: true,
+    reason: '超时问题，重试可能成功'
+  },
+  CONNECTION_REFUSED: {
+    matcher: (error) => error.code === 'ECONNREFUSED',
+    suggestion: '连接被拒绝，可能是服务器不可用',
+    action: '建议稍后重试或联系服务提供商',
+    shouldRetry: true,
+    reason: '服务器暂时不可用，重试可能有效'
+  },
+  NETWORK_UNREACHABLE: {
+    matcher: (error) => error.code === 'ENETUNREACH',
+    suggestion: '网络不可达，可能是网络配置问题',
+    action: '建议检查网络配置或联系网络管理员',
+    shouldRetry: false,
+    reason: '网络配置问题，重试无效'
+  },
+  CONNECTION_ABORTED: {
+    matcher: (error) => error.code === 'ECONNABORTED',
+    suggestion: '连接被中止，可能是客户端或服务器主动断开',
+    action: '建议检查网络稳定性或稍后重试',
+    shouldRetry: true,
+    reason: '连接中断，重试可能成功'
+  },
+  RATE_LIMIT: {
+    matcher: (error) => error.response?.status === 429,
+    suggestion: 'API调用频率超限',
+    action: '建议降低调用频率或等待一段时间后重试',
+    shouldRetry: (attempt) => attempt < 2, // 只重试前两次
+    reason: '频率限制，需要等待'
+  },
+  AUTHENTICATION_ERROR: {
+    matcher: (error) => error.response?.status === 401 || 
+                       (error.message && error.message.includes('Authentication Fails')) ||
+                       (error.message && error.message.includes('api key') && error.message.includes('invalid')),
+    suggestion: 'API密钥无效或已过期',
+    action: '建议检查API密钥配置',
+    shouldRetry: false,
+    reason: '认证问题，重试无效'
+  },
+  AUTHORIZATION_ERROR: {
+    matcher: (error) => error.response?.status === 403,
+    suggestion: 'API权限不足',
+    action: '建议检查API权限设置',
+    shouldRetry: false,
+    reason: '权限问题，重试无效'
+  },
+  NOT_FOUND: {
+    matcher: (error) => error.response?.status === 404,
+    suggestion: 'API端点不存在',
+    action: '建议检查API地址配置',
+    shouldRetry: false,
+    reason: '资源不存在，重试无效'
+  },
+  SERVER_ERROR: {
+    matcher: (error) => error.response?.status >= 500,
+    suggestion: '服务器内部错误',
+    action: '建议稍后重试或联系服务提供商',
+    shouldRetry: true,
+    reason: '服务器错误，重试可能成功'
+  },
+  CLIENT_ERROR: {
+    matcher: (error) => error.response?.status >= 400 && error.response?.status < 500,
+    suggestion: '客户端请求错误',
+    action: '建议检查请求参数或联系技术支持',
+    shouldRetry: false,
+    reason: '请求错误，重试无效'
+  },
+  NETWORK_ERROR: {
+    matcher: (error) => error.message.includes('network'),
+    suggestion: '网络连接错误',
+    action: '建议检查网络连接或稍后重试',
+    shouldRetry: true,
+    reason: '网络问题，重试可能成功'
+  },
+  CONNECTION_ERROR: {
+    matcher: (error) => error.message.includes('connection'),
+    suggestion: '连接建立失败',
+    action: '建议检查网络连接或稍后重试',
+    shouldRetry: true,
+    reason: '连接问题，重试可能成功'
+  },
+  UNKNOWN_ERROR: {
+    matcher: () => true, // 默认匹配
+    suggestion: '未知错误，需要进一步诊断',
+    action: '建议查看详细日志或联系技术支持',
+    shouldRetry: (attempt) => attempt < 1, // 只重试一次
+    reason: '未知错误，谨慎重试'
+  }
+};
+
 class AIService {
   constructor() {
     this.apiUrl = config.ai.apiUrl;
@@ -17,6 +128,17 @@ class AIService {
     this.temperature = config.ai.temperature;
     this.timeout = config.ai.timeout;
     this.retries = config.ai.retries;
+    
+    // API密钥验证和调试
+    if (!this.apiKey) {
+      Logger.error('API密钥未配置', { apiKey: 'undefined' });
+    } else {
+      Logger.info('API密钥已配置', { 
+        keyLength: this.apiKey.length,
+        keyPrefix: this.apiKey.substring(0, 8) + '...',
+        keyFormat: this.apiKey.startsWith('sk-') ? 'valid format' : 'invalid format'
+      });
+    }
     
     // 新增：动态超时配置
     this.dynamicTimeout = config.ai.dynamicTimeout;
@@ -142,6 +264,15 @@ class AIService {
           maxRedirects: 3
         });
 
+        // 安全检查API响应格式
+        if (!response.data || !response.data.choices || !Array.isArray(response.data.choices) || response.data.choices.length === 0) {
+          throw new Error(`API_RESPONSE_FORMAT_ERROR: Invalid response format - ${JSON.stringify(response.data)}`);
+        }
+        
+        if (!response.data.choices[0] || !response.data.choices[0].message || !response.data.choices[0].message.content) {
+          throw new Error(`API_RESPONSE_FORMAT_ERROR: Missing message content - ${JSON.stringify(response.data.choices)}`);
+        }
+        
         const result = response.data.choices[0].message.content;
         const responseTime = Date.now() - startTime;
         
@@ -169,7 +300,7 @@ class AIService {
 
       } catch (error) {
         const errorTime = Date.now() - startTime;
-        const errorType = this.classifyError(error); // 新增：错误分类
+        const errorAnalysis = this.analyzeErrorAndGetStrategy(error, i, maxRetries); // 统一错误分析
         const errorDetails = {
           error: error.message,
           code: error.code,
@@ -179,7 +310,7 @@ class AIService {
           attempt: i + 1,
           totalAttempts: maxRetries,
           timeoutUsed: dynamicTimeout,
-          errorType: errorType, // 新增：错误类型
+          errorType: errorAnalysis.errorType, // 错误类型
           url: this.apiUrl,
           model: this.model,
           promptLength: prompt.length,
@@ -198,32 +329,32 @@ class AIService {
           };
         }
 
-        // 根据错误类型添加具体建议和恢复策略
-        const recoveryStrategy = this.getRecoveryStrategy(errorType, i, maxRetries);
-        errorDetails.suggestion = recoveryStrategy.suggestion;
-        errorDetails.recoveryAction = recoveryStrategy.action;
-        errorDetails.shouldRetry = recoveryStrategy.shouldRetry;
+        // 添加错误分析结果
+        errorDetails.suggestion = errorAnalysis.suggestion;
+        errorDetails.recoveryAction = errorAnalysis.action;
+        errorDetails.shouldRetry = errorAnalysis.shouldRetry;
 
         Logger.error(`DeepSeek API调用失败 (第${i + 1}次)`, errorDetails);
 
-        // 使用网络诊断工具分析错误
-        const diagnosis = networkDiagnostic.logErrorDiagnosis(error, {
+        // 网络诊断信息
+        const diagnosis = {
+          errorType: errorAnalysis.errorType,
           promptLength: prompt.length,
           textLength: text.length,
           attempt: i + 1,
           totalAttempts: maxRetries,
-          batchSize: text.length > 0 ? 1 : 0,
-          errorType: errorType
-        });
+          suggestion: errorAnalysis.suggestion,
+          action: errorAnalysis.action
+        };
 
         // 检查是否应该继续重试
-        if (!recoveryStrategy.shouldRetry || i === maxRetries - 1) {
+        if (!errorAnalysis.shouldRetry || i === maxRetries - 1) {
           // 最后一次重试失败或不应该重试，抛出详细错误信息
-          const finalError = new Error(`AI_API_FAILED: ${errorType} - ${error.code || error.message}`);
+          const finalError = new Error(`AI_API_FAILED: ${errorAnalysis.errorType} - ${error.code || error.message}`);
           finalError.details = errorDetails;
           finalError.diagnosis = diagnosis;
           finalError.originalError = error;
-          finalError.errorType = errorType;
+          finalError.errorType = errorAnalysis.errorType;
           throw finalError;
         }
 
@@ -233,8 +364,8 @@ class AIService {
           attempt: i + 1, 
           nextAttempt: i + 2,
           delay: delay,
-          errorType: errorType,
-          reason: recoveryStrategy.reason
+          errorType: errorAnalysis.errorType,
+          reason: errorAnalysis.reason
         });
         await new Promise(resolve => setTimeout(resolve, delay));
       }
@@ -242,132 +373,37 @@ class AIService {
   }
 
   /**
-   * 错误分类
+   * 统一的错误分类和恢复策略处理
    * @param {Error} error - 错误对象
-   * @returns {string} 错误类型
-   */
-  classifyError(error) {
-    if (error.code === 'ECONNRESET') return 'CONNECTION_RESET';
-    if (error.code === 'ENOTFOUND') return 'DNS_ERROR';
-    if (error.code === 'ETIMEDOUT') return 'TIMEOUT';
-    if (error.code === 'ECONNREFUSED') return 'CONNECTION_REFUSED';
-    if (error.code === 'ENETUNREACH') return 'NETWORK_UNREACHABLE';
-    if (error.code === 'ECONNABORTED') return 'CONNECTION_ABORTED';
-    
-    if (error.response) {
-      const status = error.response.status;
-      if (status === 429) return 'RATE_LIMIT';
-      if (status === 401) return 'AUTHENTICATION_ERROR';
-      if (status === 403) return 'AUTHORIZATION_ERROR';
-      if (status === 404) return 'NOT_FOUND';
-      if (status >= 500) return 'SERVER_ERROR';
-      if (status >= 400) return 'CLIENT_ERROR';
-    }
-    
-    if (error.message.includes('timeout')) return 'TIMEOUT';
-    if (error.message.includes('network')) return 'NETWORK_ERROR';
-    if (error.message.includes('connection')) return 'CONNECTION_ERROR';
-    
-    return 'UNKNOWN_ERROR';
-  }
-
-  /**
-   * 获取恢复策略
-   * @param {string} errorType - 错误类型
    * @param {number} attempt - 当前重试次数
    * @param {number} maxRetries - 最大重试次数
-   * @returns {object} 恢复策略
+   * @returns {object} 错误处理结果
    */
-  getRecoveryStrategy(errorType, attempt, maxRetries) {
-    const strategies = {
-      'CONNECTION_RESET': {
-        suggestion: '网络连接被重置，可能是网络不稳定或服务器负载过高',
-        action: '建议稍后重试或检查网络连接',
-        shouldRetry: true,
-        reason: '网络连接问题，通常可以通过重试解决'
-      },
-      'DNS_ERROR': {
-        suggestion: '域名解析失败，可能是DNS问题或网络连接中断',
-        action: '建议检查网络连接或更换DNS服务器',
-        shouldRetry: true,
-        reason: 'DNS解析问题，重试可能有效'
-      },
-      'TIMEOUT': {
-        suggestion: '请求超时，可能是网络延迟过高或服务器响应慢',
-        action: '建议增加超时时间或稍后重试',
-        shouldRetry: true,
-        reason: '超时问题，重试可能成功'
-      },
-      'CONNECTION_REFUSED': {
-        suggestion: '连接被拒绝，可能是服务器不可用',
-        action: '建议稍后重试或联系服务提供商',
-        shouldRetry: true,
-        reason: '服务器暂时不可用，重试可能有效'
-      },
-      'NETWORK_UNREACHABLE': {
-        suggestion: '网络不可达，可能是网络配置问题',
-        action: '建议检查网络配置或联系网络管理员',
-        shouldRetry: false,
-        reason: '网络配置问题，重试无效'
-      },
-      'CONNECTION_ABORTED': {
-        suggestion: '连接被中止，可能是客户端或服务器主动断开',
-        action: '建议检查网络稳定性或稍后重试',
-        shouldRetry: true,
-        reason: '连接中断，重试可能成功'
-      },
-      'RATE_LIMIT': {
-        suggestion: 'API调用频率超限',
-        action: '建议降低调用频率或等待一段时间后重试',
-        shouldRetry: attempt < 2, // 只重试前两次
-        reason: '频率限制，需要等待'
-      },
-      'AUTHENTICATION_ERROR': {
-        suggestion: 'API密钥无效或已过期',
-        action: '建议检查API密钥配置',
-        shouldRetry: false,
-        reason: '认证问题，重试无效'
-      },
-      'AUTHORIZATION_ERROR': {
-        suggestion: 'API权限不足',
-        action: '建议检查API权限设置',
-        shouldRetry: false,
-        reason: '权限问题，重试无效'
-      },
-      'SERVER_ERROR': {
-        suggestion: '服务器内部错误',
-        action: '建议稍后重试或联系服务提供商',
-        shouldRetry: true,
-        reason: '服务器错误，重试可能成功'
-      },
-      'CLIENT_ERROR': {
-        suggestion: '客户端请求错误',
-        action: '建议检查请求参数或联系技术支持',
-        shouldRetry: false,
-        reason: '请求错误，重试无效'
-      },
-      'NETWORK_ERROR': {
-        suggestion: '网络连接错误',
-        action: '建议检查网络连接或稍后重试',
-        shouldRetry: true,
-        reason: '网络问题，重试可能成功'
-      },
-      'CONNECTION_ERROR': {
-        suggestion: '连接建立失败',
-        action: '建议检查网络连接或稍后重试',
-        shouldRetry: true,
-        reason: '连接问题，重试可能成功'
-      },
-      'UNKNOWN_ERROR': {
-        suggestion: '未知错误，需要进一步诊断',
-        action: '建议查看详细日志或联系技术支持',
-        shouldRetry: attempt < 1, // 只重试一次
-        reason: '未知错误，谨慎重试'
-      }
-    };
+  analyzeErrorAndGetStrategy(error, attempt = 0, maxRetries = 3) {
+    // 找到匹配的错误类型
+    const errorType = Object.keys(ERROR_HANDLING_CONFIG).find(type => {
+      return ERROR_HANDLING_CONFIG[type].matcher(error);
+    }) || 'UNKNOWN_ERROR';
     
-    return strategies[errorType] || strategies['UNKNOWN_ERROR'];
+    const strategy = ERROR_HANDLING_CONFIG[errorType];
+    
+    // 处理shouldRetry函数
+    let shouldRetry;
+    if (typeof strategy.shouldRetry === 'function') {
+      shouldRetry = strategy.shouldRetry(attempt, maxRetries);
+    } else {
+      shouldRetry = strategy.shouldRetry;
+    }
+    
+    return {
+      errorType,
+      suggestion: strategy.suggestion,
+      action: strategy.action,
+      shouldRetry,
+      reason: strategy.reason
+    };
   }
+
 
   /**
    * 使用DeepSeek AI进行智能分句
@@ -416,7 +452,10 @@ class AIService {
       });
       
       // 分割文本为多个部分
-      const parts = this.splitTextIntoChunks(text, maxTextLength);
+      const parts = this.unifiedTextSplitter(text, {
+        maxLength: maxTextLength,
+        strategy: 'sentence'
+      });
       Logger.info('文本预分割完成', { partsCount: parts.length });
       
       // 处理每个部分
@@ -620,32 +659,56 @@ class AIService {
   }
 
   /**
-   * 将大文本分割为多个块
+   * 统一的文本分割器
    * @param {string} text - 要分割的文本
-   * @param {number} maxLength - 每个块的最大长度
+   * @param {object} options - 分割选项
    * @returns {Array} 文本块数组
    */
-  splitTextIntoChunks(text, maxLength) {
+  unifiedTextSplitter(text, options = {}) {
+    const defaultOptions = {
+      maxLength: 8000,
+      minLength: 100,
+      overlapSize: 0,
+      preferSentenceBoundary: true,
+      includeMetadata: false,
+      strategy: 'sentence' // 'sentence', 'force', 'intelligent'
+    };
+    
+    const config = { ...defaultOptions, ...options };
+    
+    switch (config.strategy) {
+      case 'sentence':
+        return this._splitBySentence(text, config);
+      case 'force':
+        return this._splitByForce(text, config);
+      case 'intelligent':
+        return this._splitIntelligently(text, config);
+      default:
+        return this._splitBySentence(text, config);
+    }
+  }
+  
+  /**
+   * 按句子分割文本
+   */
+  _splitBySentence(text, config) {
     const chunks = [];
     let currentChunk = '';
     
-    // 按句子分割文本
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
     
     for (const sentence of sentences) {
       const trimmedSentence = sentence.trim();
       
-      // 如果当前块加上新句子会超过限制，则开始新块
-      if (currentChunk.length + trimmedSentence.length + 2 > maxLength) {
-        if (currentChunk.length > 0) {
-          chunks.push(currentChunk.trim());
-          currentChunk = '';
+      if (currentChunk.length + trimmedSentence.length + 2 > config.maxLength) {
+        if (currentChunk.length >= config.minLength) {
+          chunks.push(this._formatChunk(currentChunk.trim(), config));
         }
         
-        // 如果单个句子就超过限制，强制分割
-        if (trimmedSentence.length > maxLength) {
-          const subChunks = this.forceSplitText(trimmedSentence, maxLength);
+        if (trimmedSentence.length > config.maxLength) {
+          const subChunks = this._splitByForce(trimmedSentence, config);
           chunks.push(...subChunks);
+          currentChunk = '';
         } else {
           currentChunk = trimmedSentence;
         }
@@ -654,47 +717,124 @@ class AIService {
       }
     }
     
-    // 添加最后一个块
-    if (currentChunk.length > 0) {
-      chunks.push(currentChunk.trim());
+    if (currentChunk.length >= config.minLength) {
+      chunks.push(this._formatChunk(currentChunk.trim(), config));
     }
     
     return chunks;
   }
-
+  
   /**
-   * 强制分割过长的文本
-   * @param {string} text - 要分割的文本
-   * @param {number} maxLength - 每个块的最大长度
-   * @returns {Array} 文本块数组
+   * 强制分割文本
    */
-  forceSplitText(text, maxLength) {
+  _splitByForce(text, config) {
     const chunks = [];
     let start = 0;
     
     while (start < text.length) {
-      let end = start + maxLength;
+      let end = start + config.maxLength;
       
-      // 如果不是在文本末尾，尝试在单词边界分割
-      if (end < text.length) {
+      if (end < text.length && config.preferSentenceBoundary) {
         while (end > start && text[end] !== ' ' && text[end] !== '\n') {
           end--;
         }
-        
-        // 如果找不到合适的分割点，强制分割
         if (end === start) {
-          end = start + maxLength;
+          end = start + config.maxLength;
         }
-      } else {
+      } else if (end > text.length) {
         end = text.length;
       }
       
-      chunks.push(text.substring(start, end).trim());
+      const chunk = text.substring(start, end).trim();
+      if (chunk.length >= config.minLength) {
+        chunks.push(this._formatChunk(chunk, config));
+      }
       start = end;
     }
     
     return chunks;
   }
+  
+  /**
+   * 智能分割文本（支持重叠）
+   */
+  _splitIntelligently(text, config) {
+    const chunks = [];
+    let currentChunk = '';
+    let startIndex = 0;
+    
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    
+    for (let i = 0; i < sentences.length; i++) {
+      const sentence = sentences[i].trim();
+      
+      if (currentChunk.length + sentence.length + 2 > config.maxLength) {
+        if (currentChunk.length >= config.minLength) {
+          chunks.push(this._formatChunk(currentChunk.trim(), config, startIndex));
+          
+          if (config.overlapSize > 0) {
+            const overlapText = this._calculateOverlap(currentChunk, config.overlapSize);
+            currentChunk = overlapText + '. ' + sentence;
+            startIndex = startIndex + currentChunk.length - overlapText.length - 2;
+          } else {
+            currentChunk = sentence;
+            startIndex += currentChunk.length;
+          }
+        } else {
+          if (sentence.length > config.maxLength) {
+            const subChunks = this._splitByForce(sentence, config);
+            chunks.push(...subChunks);
+            currentChunk = '';
+          } else {
+            currentChunk = sentence;
+          }
+          startIndex += sentence.length;
+        }
+      } else {
+        currentChunk += (currentChunk.length > 0 ? '. ' : '') + sentence;
+      }
+    }
+    
+    if (currentChunk.length >= config.minLength) {
+      chunks.push(this._formatChunk(currentChunk.trim(), config, startIndex));
+    }
+    
+    return chunks;
+  }
+  
+  /**
+   * 计算重叠部分
+   */
+  _calculateOverlap(text, overlapSize) {
+    if (text.length <= overlapSize) {
+      return text;
+    }
+    
+    let overlapText = text.substring(text.length - overlapSize);
+    const lastSentenceEnd = overlapText.lastIndexOf('.');
+    
+    if (lastSentenceEnd > 0) {
+      overlapText = overlapText.substring(lastSentenceEnd + 1).trim();
+    }
+    
+    return overlapText;
+  }
+  
+  /**
+   * 格式化文本块
+   */
+  _formatChunk(text, config, startIndex = 0) {
+    if (config.includeMetadata) {
+      return {
+        text: text,
+        startIndex: startIndex,
+        endIndex: startIndex + text.length,
+        length: text.length
+      };
+    }
+    return text;
+  }
+
 
 
 
@@ -1281,7 +1421,13 @@ CRITICAL: Return ONLY the JSON array below, no other text:
     Logger.info('使用分块策略', chunkStrategy);
 
     // 智能分块
-    const chunks = this.intelligentChunking(text, chunkStrategy);
+    const chunks = this.unifiedTextSplitter(text, {
+      maxLength: chunkStrategy.maxChunkSize,
+      minLength: chunkStrategy.minChunkSize,
+      overlapSize: chunkStrategy.overlapSize,
+      strategy: 'intelligent',
+      includeMetadata: true
+    });
     Logger.info('文件分块完成', {
       totalChunks: chunks.length,
       averageChunkSize: Math.round(textLength / chunks.length)
@@ -1415,120 +1561,8 @@ CRITICAL: Return ONLY the JSON array below, no other text:
     return strategy;
   }
 
-  /**
-   * 智能分块
-   * @param {string} text - 文本内容
-   * @param {object} strategy - 分块策略
-   * @returns {Array} 文本块数组
-   */
-  intelligentChunking(text, strategy) {
-    const chunks = [];
-    let currentChunk = '';
-    let startIndex = 0;
 
-    // 按句子分割文本
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
-    
-    for (let i = 0; i < sentences.length; i++) {
-      const sentence = sentences[i].trim();
-      
-      // 如果当前块加上新句子会超过限制
-      if (currentChunk.length + sentence.length + 2 > strategy.maxChunkSize) {
-        if (currentChunk.length > 0) {
-          // 添加当前块
-          chunks.push({
-            text: currentChunk.trim(),
-            startIndex: startIndex,
-            endIndex: startIndex + currentChunk.length
-          });
-          
-          // 计算重叠部分
-          const overlapText = this.calculateOverlap(currentChunk, strategy.overlapSize);
-          currentChunk = overlapText + '. ' + sentence;
-          startIndex = startIndex + currentChunk.length - overlapText.length - 2;
-        } else {
-          // 单个句子就超过限制，强制分割
-          const subChunks = this.forceSplitSentence(sentence, strategy.maxChunkSize);
-          chunks.push(...subChunks.map((chunk, index) => ({
-            text: chunk,
-            startIndex: startIndex + index * strategy.maxChunkSize,
-            endIndex: startIndex + (index + 1) * strategy.maxChunkSize
-          })));
-          currentChunk = '';
-          startIndex += sentence.length;
-        }
-      } else {
-        currentChunk += (currentChunk.length > 0 ? '. ' : '') + sentence;
-      }
-    }
 
-    // 添加最后一个块
-    if (currentChunk.length > 0) {
-      chunks.push({
-        text: currentChunk.trim(),
-        startIndex: startIndex,
-        endIndex: startIndex + currentChunk.length
-      });
-    }
-
-    // 过滤掉过小的块
-    return chunks.filter(chunk => chunk.text.length >= strategy.minChunkSize);
-  }
-
-  /**
-   * 计算重叠部分
-   * @param {string} text - 文本内容
-   * @param {number} overlapSize - 重叠大小
-   * @returns {string} 重叠部分
-   */
-  calculateOverlap(text, overlapSize) {
-    if (text.length <= overlapSize) {
-      return text;
-    }
-
-    // 从末尾开始，寻找句子边界
-    let overlapText = text.substring(text.length - overlapSize);
-    const lastSentenceEnd = overlapText.lastIndexOf('.');
-    
-    if (lastSentenceEnd > 0) {
-      overlapText = overlapText.substring(lastSentenceEnd + 1).trim();
-    }
-
-    return overlapText;
-  }
-
-  /**
-   * 强制分割句子
-   * @param {string} sentence - 句子内容
-   * @param {number} maxSize - 最大大小
-   * @returns {Array} 分割后的块
-   */
-  forceSplitSentence(sentence, maxSize) {
-    const chunks = [];
-    let start = 0;
-
-    while (start < sentence.length) {
-      let end = start + maxSize;
-      
-      if (end < sentence.length) {
-        // 尝试在单词边界分割
-        while (end > start && sentence[end] !== ' ' && sentence[end] !== '\n') {
-          end--;
-        }
-        
-        if (end === start) {
-          end = start + maxSize; // 强制分割
-        }
-      } else {
-        end = sentence.length;
-      }
-
-      chunks.push(sentence.substring(start, end).trim());
-      start = end;
-    }
-
-    return chunks;
-  }
 
   /**
    * 计算块间延迟

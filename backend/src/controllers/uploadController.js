@@ -26,28 +26,12 @@ class UploadController {
         clientId 
       });
 
-      // 验证客户端ID
-      if (!clientId) {
-        Logger.warn('缺少客户端ID');
-        return res.status(400).json({ 
-          error: '缺少客户端ID',
-          code: 'MISSING_CLIENT_ID'
-        });
-      }
-
-      // 验证WebSocket连接
-      if (!websocketService.hasClient(clientId)) {
-        Logger.warn('WebSocket客户端不存在', { clientId });
-        return res.status(400).json({ 
-          error: 'WebSocket连接不存在，请刷新页面重试',
-          code: 'WEBSOCKET_NOT_CONNECTED'
-        });
-      }
+      // 客户端ID现在是可选的（移除websocket依赖）
+      const processId = clientId || `http_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       // 验证文件
       if (!file) {
         Logger.warn('未上传文件');
-        websocketService.sendError(clientId, '请上传文件');
         return res.status(400).json({ 
           error: '请上传文件',
           code: 'NO_FILE_UPLOADED'
@@ -57,7 +41,6 @@ class UploadController {
       // 验证英语水平
       if (!englishLevel) {
         Logger.warn('未选择英语水平');
-        websocketService.sendError(clientId, '请选择英语水平');
         return res.status(400).json({ 
           error: '请选择英语水平',
           code: 'MISSING_ENGLISH_LEVEL'
@@ -66,48 +49,54 @@ class UploadController {
 
       if (!fileProcessingService.validateEnglishLevel(englishLevel)) {
         Logger.warn('无效的英语水平', { englishLevel });
-        websocketService.sendError(clientId, '无效的英语水平');
         return res.status(400).json({ 
           error: '无效的英语水平',
           code: 'INVALID_ENGLISH_LEVEL'
         });
       }
 
-      // 异步处理文件
-      fileProcessingService.processFile(file, englishLevel, clientId)
-        .then(result => {
-          Logger.success('文件处理完成', { 
-            filename: file.originalname,
-            clientId,
-            processingTime: result.processingTime 
-          });
-        })
-        .catch(error => {
-          Logger.error('文件处理失败', { 
-            filename: file.originalname,
-            clientId,
-            error: error.message 
-          });
-          
-          // 根据错误类型发送不同的错误消息
-          let errorMessage = error.message;
-          if (error.message.includes('AI_API_FAILED') || error.message.includes('NETWORK_ERROR')) {
-            errorMessage = '网络连接问题，无法访问AI服务。请检查网络连接后重试。';
-          } else if (error.message.includes('ECONNRESET') || error.message.includes('ETIMEDOUT')) {
-            errorMessage = '网络连接超时，请检查网络设置或稍后重试。';
-          }
-          
-          websocketService.sendError(clientId, errorMessage);
+      // 同步处理文件（移除websocket异步模式）
+      try {
+        const result = await fileProcessingService.processFile(file, englishLevel, processId);
+        
+        Logger.success('文件处理完成', { 
+          filename: file.originalname,
+          processId,
+          processingTime: result.processingTime 
         });
 
-      // 立即返回响应，告知前端处理已开始
-      res.json({
-        success: true,
-        message: '文件上传成功，正在处理中...',
-        clientId: clientId,
-        filename: file.originalname,
-        englishLevel: englishLevel
-      });
+        // 直接返回处理结果
+        res.json({
+          success: true,
+          message: '文件处理完成',
+          result: result,
+          processId: processId,
+          filename: file.originalname,
+          englishLevel: englishLevel,
+          processingTime: result.processingTime
+        });
+
+      } catch (error) {
+        Logger.error('文件处理失败', { 
+          filename: file.originalname,
+          processId,
+          error: error.message 
+        });
+        
+        // 根据错误类型发送不同的错误消息
+        let errorMessage = error.message;
+        if (error.message.includes('AI_API_FAILED') || error.message.includes('NETWORK_ERROR')) {
+          errorMessage = '网络连接问题，无法访问AI服务。请检查网络连接后重试。';
+        } else if (error.message.includes('ECONNRESET') || error.message.includes('ETIMEDOUT')) {
+          errorMessage = '网络连接超时，请检查网络设置或稍后重试。';
+        }
+        
+        return res.status(500).json({
+          error: errorMessage,
+          code: 'PROCESSING_ERROR',
+          processId: processId
+        });
+      }
 
     } catch (error) {
       Logger.error('上传控制器错误', { error: error.message });

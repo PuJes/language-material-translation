@@ -65,8 +65,8 @@ class UploadController {
           processingTime: result.processingTime 
         });
 
-        // 直接返回处理结果
-        res.json({
+        // 准备返回给前端的成功结果
+        const successResponse = {
           success: true,
           message: '文件处理完成',
           result: result,
@@ -74,26 +74,75 @@ class UploadController {
           filename: file.originalname,
           englishLevel: englishLevel,
           processingTime: result.processingTime
-        });
+        };
+
+        // 在控制台输出返回给前端的结果
+        console.log('\n=== 返回给前端的成功结果 ===');
+        console.log('状态码: 200');
+        console.log('响应数据:', JSON.stringify(successResponse, null, 2));
+        console.log('===============================\n');
+
+        // 返回结果给前端
+        res.json(successResponse);
 
       } catch (error) {
         Logger.error('文件处理失败', { 
           filename: file.originalname,
           processId,
-          error: error.message 
+          error: error.message,
+          errorType: error.errorType,
+          errorDetails: error.details
         });
         
-        // 根据错误类型发送不同的错误消息
+        // 根据错误类型发送不同的错误消息和状态码
         let errorMessage = error.message;
-        if (error.message.includes('AI_API_FAILED') || error.message.includes('NETWORK_ERROR')) {
+        let statusCode = 500;
+        let errorCode = 'PROCESSING_ERROR';
+        
+        // 调试日志：显示错误分类过程
+        Logger.debug('错误分类处理', {
+          errorType: error.errorType,
+          messageIncludes: {
+            AUTHENTICATION_ERROR: error.message.includes('AUTHENTICATION_ERROR'),
+            rate_limit: error.message.includes('rate limit'),
+            AI_API_FAILED: error.message.includes('AI_API_FAILED'),
+            SERVER_ERROR: error.message.includes('SERVER_ERROR')
+          },
+          originalMessage: error.message
+        });
+
+        // 优先检查aiService提供的errorType属性
+        if (error.errorType === 'AUTHENTICATION_ERROR' || error.message.includes('AUTHENTICATION_ERROR')) {
+          errorMessage = 'API密钥无效或已过期，请检查配置';
+          statusCode = 401;
+          errorCode = 'AUTHENTICATION_ERROR';
+          Logger.info('错误分类结果', { type: 'AUTHENTICATION_ERROR', statusCode: 401 });
+        } else if (error.errorType === 'RATE_LIMIT' || error.message.includes('rate limit')) {
+          errorMessage = 'API调用频率超限，请稍后重试';
+          statusCode = 429;
+          errorCode = 'RATE_LIMIT_EXCEEDED';
+        } else if (error.errorType === 'SERVER_ERROR' || (error.message.includes('AI_API_FAILED') && error.message.includes('SERVER_ERROR'))) {
+          errorMessage = 'AI服务暂时不可用，请稍后重试';
+          statusCode = 503;
+          errorCode = 'SERVICE_UNAVAILABLE';
+        } else if (error.errorType === 'NETWORK_ERROR' || error.errorType === 'CONNECTION_ERROR' || 
+                   error.message.includes('NETWORK_ERROR') || error.message.includes('AI_API_FAILED')) {
           errorMessage = '网络连接问题，无法访问AI服务。请检查网络连接后重试。';
-        } else if (error.message.includes('ECONNRESET') || error.message.includes('ETIMEDOUT')) {
+          statusCode = 503; // Service Unavailable
+          errorCode = 'SERVICE_UNAVAILABLE';
+        } else if (error.errorType === 'TIMEOUT' || error.message.includes('ECONNRESET') || error.message.includes('ETIMEDOUT')) {
           errorMessage = '网络连接超时，请检查网络设置或稍后重试。';
+          statusCode = 504; // Gateway Timeout
+          errorCode = 'GATEWAY_TIMEOUT';
+        } else if (error.message.includes('文件格式') || error.message.includes('文件内容')) {
+          errorMessage = error.message;
+          statusCode = 400; // Bad Request
+          errorCode = 'INVALID_FILE';
         }
         
-        return res.status(500).json({
+        return res.status(statusCode).json({
           error: errorMessage,
-          code: 'PROCESSING_ERROR',
+          code: errorCode,
           processId: processId
         });
       }

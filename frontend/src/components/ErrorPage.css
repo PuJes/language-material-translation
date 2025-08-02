@@ -1,0 +1,346 @@
+/* ErrorPage 组件样式 - 简洁明亮设计 */
+.error-page-container {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.error-page-content {
+  max-width: 700px;
+  width: 100%;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e8e8e8;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 主要错误信息区域 */
+.error-hero {
+  padding: 50px 40px 40px;
+  text-align: center;
+  background: #ffffff;
+  color: #333;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.error-illustration {
+  margin-bottom: 24px;
+}
+
+.error-icon-wrapper {
+  display: inline-block;
+  position: relative;
+}
+
+.error-icon-bg {
+  width: 80px;
+  height: 80px;
+  background: #fff2f0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  color: #ff4d4f;
+  border: 2px solid #ffccc7;
+  margin: 0 auto;
+}
+
+.error-text {
+  margin-top: 20px;
+}
+
+.error-title {
+  margin-bottom: 12px !important;
+  color: #262626 !important;
+  font-size: 28px !important;
+  font-weight: 600 !important;
+  line-height: 1.3;
+}
+
+.error-subtitle {
+  font-size: 16px;
+  color: #666;
+  line-height: 1.5;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+/* 文件信息卡片 */
+.file-info-card {
+  margin: 24px 32px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+}
+
+.file-info-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #1890ff;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.file-info-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 详细信息折叠面板 */
+.error-details {
+  margin: 24px 32px;
+}
+
+.error-details .ant-collapse {
+  background: #ffffff;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+}
+
+.error-details .ant-collapse-item {
+  border: none;
+  margin-bottom: 0;
+}
+
+.error-details .ant-collapse-header {
+  background: #fafafa !important;
+  padding: 16px 20px !important;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.error-details .ant-collapse-content {
+  background: #ffffff;
+}
+
+.collapse-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #333;
+  font-size: 14px;
+}
+
+.error-detail-content {
+  padding: 20px;
+}
+
+.error-message {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: #fff2f0;
+  border-radius: 6px;
+  border: 1px solid #ffccc7;
+  color: #333;
+}
+
+.error-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.solutions-content {
+  padding: 20px;
+}
+
+.solution-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 16px;
+  background: #f6ffed;
+  border-radius: 6px;
+  border: 1px solid #d9f7be;
+  color: #333;
+}
+
+.solution-item:last-child {
+  margin-bottom: 0;
+}
+
+.solution-arrow {
+  color: #52c41a;
+  margin-top: 2px;
+  flex-shrink: 0;
+  font-weight: bold;
+}
+
+/* 操作按钮 */
+.error-actions {
+  padding: 32px;
+  text-align: center;
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+  background: #fafafa;
+  border-top: 1px solid #f0f0f0;
+}
+
+.retry-button {
+  height: 44px !important;
+  padding: 0 28px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+  background: #1890ff !important;
+  border: none !important;
+  color: white !important;
+  transition: all 0.2s ease !important;
+}
+
+.retry-button:hover {
+  background: #40a9ff !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3) !important;
+}
+
+.home-button {
+  height: 44px !important;
+  padding: 0 28px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+  border: 1px solid #d9d9d9 !important;
+  color: #666 !important;
+  background: white !important;
+  transition: all 0.2s ease !important;
+}
+
+.home-button:hover {
+  border-color: #1890ff !important;
+  color: #1890ff !important;
+  transform: translateY(-1px) !important;
+}
+
+/* 底部信息 */
+.error-footer {
+  padding: 20px 32px;
+  text-align: center;
+  background: #fafafa;
+  border-top: 1px solid #f0f0f0;
+}
+
+.error-footer .ant-typography {
+  font-size: 12px;
+  color: #999;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .error-page-container {
+    padding: 16px;
+  }
+  
+  .error-hero {
+    padding: 40px 24px 32px;
+  }
+  
+  .error-icon-bg {
+    width: 70px;
+    height: 70px;
+    font-size: 32px;
+  }
+  
+  .error-title {
+    font-size: 24px !important;
+  }
+  
+  .error-subtitle {
+    font-size: 15px;
+  }
+  
+  .file-info-card,
+  .error-details {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+  
+  .error-actions {
+    padding: 24px 16px;
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .retry-button,
+  .home-button {
+    width: 100%;
+    max-width: 280px;
+  }
+  
+  .error-footer {
+    padding: 16px;
+  }
+}
+
+/* 增强视觉效果 */
+.error-page-content .ant-tag {
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+  font-weight: 500;
+}
+
+.error-page-content .ant-collapse-expand-icon {
+  color: #1890ff !important;
+}
+
+/* 动画效果 */
+.error-page-content {
+  animation: fadeInUp 0.4s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.file-info-card,
+.error-details {
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 确保在所有情况下都使用明亮主题 */
+.error-page-content,
+.error-page-content * {
+  color-scheme: light;
+}
+
+/* 覆盖任何可能的暗色样式 */
+.error-page-content .ant-collapse-item,
+.error-page-content .ant-collapse-header,
+.error-page-content .ant-collapse-content {
+  background: #ffffff !important;
+  color: #333 !important;
+}
+
+.error-page-content .ant-collapse-header {
+  background: #fafafa !important;
+}

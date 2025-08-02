@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react'; // 引入 useEffect 和 useRef
+import React, { useState } from 'react';
 import { Layout, Upload, Button, Select, message, Spin, Card, Typography, Row, Col, Space, Progress, Dropdown } from 'antd';
 import { UploadOutlined, DownloadOutlined, BookOutlined, RocketOutlined, FileTextOutlined, GlobalOutlined, ClockCircleOutlined, ThunderboltOutlined, FilePdfOutlined, FileExclamationOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { getApiUrl, API_CONFIG } from './config/api.js';
+import ErrorPage from './components/ErrorPage.jsx';
 import './App.css';
 
-const { Header, Content } = Layout;
+const { Content } = Layout;
 const { Title, Paragraph, Text } = Typography;
 const { Option } = Select;
 const { Dragger } = Upload;
@@ -25,12 +26,14 @@ function App() {
   const [selectedVocabulary, setSelectedVocabulary] = useState(null);
   const [processingTime, setProcessingTime] = useState(null);
   
-  const [retryCount, setRetryCount] = useState(0); // API重试次数
-  const [isRetrying, setIsRetrying] = useState(false); // 是否正在重试
+
   
   // 进度相关状态
   const [processingStage, setProcessingStage] = useState('');
   const [processingProgress, setProcessingProgress] = useState(0);
+  
+  // 错误状态管理
+  const [errorState, setErrorState] = useState(null); // 错误状态信息
   // 移除 timeoutWarning 状态
   // const [timeoutWarning, setTimeoutWarning] = useState(false);
 
@@ -53,6 +56,148 @@ function App() {
       console.warn('[App] Network connectivity check failed:', error.message);
       return false;
     }
+  };
+
+  // 构建错误状态对象
+  const buildErrorState = async (error) => {
+    const networkStatus = await checkNetworkConnectivity();
+    
+    let errorType = 'UNKNOWN_ERROR';
+    let errorMessage = '文件处理失败';
+    let statusCode = null;
+    let errorCode = null;
+    let suggestions = null;
+
+    if (error.response) {
+      // 服务器响应错误
+      statusCode = error.response.status;
+      const serverError = error.response.data?.error || error.response.statusText;
+      errorCode = error.response.data?.code || `HTTP_${statusCode}`;
+      
+      if (statusCode === 413) {
+        errorType = 'FILE_ERROR';
+        errorMessage = '文件过大，请选择小于5MB的文件';
+        suggestions = [
+          '选择更小的文件（建议小于1MB）',
+          '将长文本分割成多个较短的文件',
+          '压缩文件内容或删除不必要的部分'
+        ];
+      } else if (statusCode === 415) {
+        errorType = 'FILE_ERROR';
+        errorMessage = '不支持的文件格式，请上传 .txt 或 .srt 文件';
+        suggestions = [
+          '确保文件扩展名为 .txt 或 .srt',
+          '检查文件是否为纯文本格式',
+          '尝试重新保存文件为UTF-8编码'
+        ];
+      } else if (statusCode === 429) {
+        errorType = 'SERVER_ERROR';
+        errorMessage = '请求过于频繁，请稍后再试';
+        suggestions = [
+          '等待几分钟后重试',
+          '避免频繁上传文件',
+          '检查是否有其他标签页在同时使用服务'
+        ];
+      } else if (statusCode >= 500) {
+        errorType = 'SERVER_ERROR';
+        errorMessage = `服务器暂时不可用 (${statusCode})，请稍后重试`;
+        suggestions = [
+          '服务器正在维护，请稍后重试',
+          '检查服务状态页面了解更多信息',
+          '如果问题持续存在，请联系技术支持'
+        ];
+      } else if (statusCode === 401) {
+        errorType = 'AUTHENTICATION_ERROR';
+        errorMessage = 'API密钥无效或已过期';
+        errorCode = 'AUTHENTICATION_FAILED';
+        suggestions = [
+          '请联系管理员检查API密钥配置',
+          '确认API密钥是否已过期',
+          '检查API服务是否正常运行',
+          '如果问题持续存在，请联系技术支持'
+        ];
+      } else if (statusCode === 400) {
+        errorType = 'VALIDATION_ERROR';
+        errorMessage = `请求格式错误：${serverError}`;
+        suggestions = [
+          '检查上传的文件是否完整',
+          '确保选择了正确的英语水平',
+          '尝试重新上传文件'
+        ];
+      } else if (statusCode === 503) {
+        errorType = 'SERVICE_ERROR';
+        errorMessage = 'AI服务暂时不可用';
+        errorCode = 'SERVICE_UNAVAILABLE';
+        suggestions = [
+          'AI服务正在维护或过载',
+          '请稍后重试',
+          '如果问题持续存在，请联系技术支持'
+        ];
+      } else if (statusCode === 504) {
+        errorType = 'TIMEOUT_ERROR';
+        errorMessage = '服务响应超时';
+        errorCode = 'GATEWAY_TIMEOUT';
+        suggestions = [
+          '服务器响应时间过长',
+          '尝试上传更小的文件',
+          '稍后重试',
+          '检查网络连接状态'
+        ];
+      } else {
+        errorType = 'SERVER_ERROR';
+        errorMessage = `请求失败 (${statusCode})：${serverError}`;
+      }
+    } else if (error.code === 'ECONNABORTED') {
+      errorType = 'TIMEOUT_ERROR';
+      errorMessage = '请求超时，文件可能过大或网络较慢';
+      errorCode = 'TIMEOUT';
+      suggestions = [
+        '尝试上传更小的文件',
+        '检查网络连接速度',
+        '稍后再试，避开网络高峰期',
+        '将长文本分割成多个较短的文件'
+      ];
+    } else if (error.code === 'ERR_NETWORK') {
+      errorType = 'NETWORK_ERROR';
+      errorMessage = '网络连接失败，请检查网络设置';
+      errorCode = 'NETWORK_FAILED';
+      suggestions = [
+        '检查网络连接是否正常',
+        '尝试刷新页面后重新操作',
+        '如果使用VPN，请尝试关闭后重试',
+        '检查防火墙设置是否阻止了连接'
+      ];
+    } else if (error.code === 'ERR_CONNECTION_REFUSED') {
+      errorType = 'NETWORK_ERROR';
+      errorMessage = '无法连接到服务器，服务可能暂时不可用';
+      errorCode = 'CONNECTION_REFUSED';
+      suggestions = [
+        '服务器可能正在维护',
+        '检查网络连接是否正常',
+        '稍后重试',
+        '联系技术支持了解服务状态'
+      ];
+    } else if (error.name === 'AbortError') {
+      errorType = 'NETWORK_ERROR';
+      errorMessage = '请求被中断，请重试';
+      errorCode = 'REQUEST_ABORTED';
+    } else {
+      errorType = 'UNKNOWN_ERROR';
+      errorMessage = `网络错误：${error.message || '未知错误'}`;
+      errorCode = 'UNKNOWN';
+    }
+
+    return {
+      type: errorType,
+      message: errorMessage,
+      code: errorCode,
+      statusCode: statusCode,
+      timestamp: new Date().toISOString(),
+      retryCount: 0, // 不再使用自动重试
+      networkStatus: networkStatus ? 'connected' : 'disconnected',
+      suggestions: suggestions,
+      originalError: error.message
+    };
   };
 
 
@@ -108,65 +253,7 @@ function App() {
     }
   };
 
-  /**
-   * API重试机制
-   * @param {Function} apiCall - API调用函数
-   * @param {number} maxRetries - 最大重试次数
-   * @param {number} delay - 重试延迟（毫秒）
-   * @returns {Promise} API调用结果
-   */
-  const retryApiCall = async (apiCall, maxRetries = 3, delay = 2000) => {
-    let lastError;
-    
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        setRetryCount(attempt);
-        
-        if (attempt > 0) {
-          setIsRetrying(true);
-          console.log(`[API Retry] Attempt ${attempt}/${maxRetries} after ${delay}ms delay`);
-          
-          // 显示重试消息
-          message.info({
-            content: `🔄 正在重试... (${attempt}/${maxRetries})`,
-            duration: 2
-          });
-          
-          // 等待延迟
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-        
-        const result = await apiCall();
-        setIsRetrying(false);
-        setRetryCount(0);
-        return result;
-        
-      } catch (error) {
-        lastError = error;
-        console.error(`[API Retry] Attempt ${attempt} failed:`, error.message);
-        
-        // 如果是最后一次尝试，不再重试
-        if (attempt === maxRetries) {
-          setIsRetrying(false);
-          throw error;
-        }
-        
-        // 对于某些错误类型，不进行重试
-        if (error.response?.status === 413 || // 文件过大
-            error.response?.status === 415 || // 不支持的文件格式
-            error.response?.status === 400) { // 客户端错误
-          setIsRetrying(false);
-          throw error;
-        }
-        
-        // 指数退避：每次重试延迟翻倍
-        delay = Math.min(delay * 2, 10000);
-      }
-    }
-    
-    setIsRetrying(false);
-    throw lastError;
-  };
+
 
   /**
    * 开始处理文件
@@ -226,15 +313,13 @@ function App() {
       const apiUrl = getApiUrl('/api/upload');
       console.log('[HTTP] Uploading to:', apiUrl);
       
-      // 使用重试机制进行API调用
-      const response = await retryApiCall(async () => {
-        return await axios.post(apiUrl, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-          timeout: API_CONFIG.timeout,
-        });
-      }, 3, 2000);
+      // 直接进行API调用（不使用重试机制）
+      const response = await axios.post(apiUrl, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: API_CONFIG.timeout,
+      });
       
       clearProgressInterval();
       
@@ -244,6 +329,7 @@ function App() {
         setProcessingTime(response.data.processingTime);
         setProcessingProgress(100);
         setProcessingStage('✅ 处理完成！');
+        setErrorState(null); // 清除任何之前的错误状态
         
         setTimeout(() => {
           setLoading(false);
@@ -261,118 +347,61 @@ function App() {
       clearProgressInterval();
       console.error('❌ [HTTP请求] 处理失败:', error);
       
-      // 详细的错误处理和用户友好的错误消息
-      let errorMessage = '文件上传失败';
-      let errorDuration = 5;
-      let showRetryButton = false;
+      // 构建详细的错误状态
+      const errorStateData = await buildErrorState(error);
       
-      if (error.response) {
-        // 服务器响应错误
-        const status = error.response.status;
-        const serverError = error.response.data?.error || error.response.statusText;
-        
-        if (status === 413) {
-          errorMessage = '📁 文件过大，请选择小于5MB的文件';
-        } else if (status === 415) {
-          errorMessage = '📄 不支持的文件格式，请上传 .txt 或 .srt 文件';
-        } else if (status === 429) {
-          errorMessage = '⏱️ 请求过于频繁，请稍后再试';
-          showRetryButton = true;
-          errorDuration = 8;
-        } else if (status >= 500) {
-          errorMessage = `🔧 服务器暂时不可用 (${status})，请稍后重试`;
-          showRetryButton = true;
-          errorDuration = 10;
-        } else if (status === 400) {
-          errorMessage = `❌ 请求格式错误：${serverError}`;
-        } else {
-          errorMessage = `⚠️ 请求失败 (${status})：${serverError}`;
-          showRetryButton = true;
-        }
-      } else if (error.code === 'ECONNABORTED') {
-        errorMessage = '⏰ 请求超时，文件可能过大或网络较慢';
-        showRetryButton = true;
-        errorDuration = 10;
-      } else if (error.code === 'ERR_NETWORK') {
-        errorMessage = '🌐 网络连接失败，请检查网络设置';
-        showRetryButton = true;
-        errorDuration = 10;
-      } else if (error.code === 'ERR_CONNECTION_REFUSED') {
-        errorMessage = '🚫 无法连接到服务器，服务可能暂时不可用';
-        showRetryButton = true;
-        errorDuration = 10;
-      } else if (error.name === 'AbortError') {
-        errorMessage = '⏹️ 请求被中断，请重试';
-        showRetryButton = true;
-        errorDuration = 5;
-      } else {
-        errorMessage = `❌ 网络错误：${error.message || '未知错误'}`;
-        showRetryButton = true;
-      }
+      // 设置错误状态，显示错误页面
+      setErrorState(errorStateData);
       
-      // 如果进行了重试，在错误消息中显示重试信息
-      if (retryCount > 0) {
-        errorMessage += ` (已重试 ${retryCount} 次)`;
-      }
-      
-      // 检查网络连接状态
-      const isConnected = await checkNetworkConnectivity();
-      if (!isConnected) {
-        errorMessage = '🔌 网络连接异常，请检查网络设置后重试';
-        errorDuration = 12;
-      }
-      
-      // 显示错误消息，如果支持重试则添加重试按钮
-      if (showRetryButton && !isRetrying) {
-        message.error({
-          content: (
-            <div>
-              <div>{errorMessage}</div>
-              <div style={{ marginTop: 8 }}>
-                <Button 
-                  size="small" 
-                  type="primary" 
-                  onClick={() => {
-                    message.destroy();
-                    handleProcess();
-                  }}
-                  style={{ marginRight: 8 }}
-                >
-                  🔄 重试
-                </Button>
-                <Button 
-                  size="small" 
-                  onClick={() => message.destroy()}
-                >
-                  取消
-                </Button>
-              </div>
-            </div>
-          ),
-          duration: 0, // 不自动关闭，让用户选择
-          style: { marginTop: '100px' }
-        });
-      } else {
-        message.error({
-          content: errorMessage,
-          duration: errorDuration,
-          style: { marginTop: '100px' }
-        });
-      }
-      
-      // 错误情况下立即重置所有状态，不再等待WebSocket消息
+      // 重置其他状态
       setLoading(false);
       setProcessingStage('');
       setProcessingProgress(0);
-      setResult(null); // 错误时清空结果
-      setIsRetrying(false);
-      console.log('State after HTTP request error:', { loading, result, processingStage, processingProgress });
+      setResult(null);
+      
+      // 显示简短的错误提示
+      message.error({
+        content: `处理失败：${errorStateData.message}`,
+        duration: 3,
+        style: { marginTop: '100px' }
+      });
+      
+      console.log('Error state set:', errorStateData);
     }
   };
 
   // 在组件渲染前，打印最新的状态值
   console.log('Rendering App with state:', { loading, result, processingStage, processingProgress });
 
+
+  /**
+   * 错误页面重试处理
+   */
+  const handleErrorRetry = () => {
+    console.log('用户点击重试按钮');
+    setErrorState(null); // 清除错误状态
+    handleProcess(); // 重新处理文件
+  };
+
+  /**
+   * 错误页面重置处理
+   */
+  const handleErrorReset = () => {
+    console.log('用户点击重新开始按钮');
+    // 重置所有状态到初始状态
+    setErrorState(null);
+    setResult(null);
+    setFileList([]);
+    setEnglishLevel('');
+    setLoading(false);
+    setProcessingStage('');
+    setProcessingProgress(0);
+    setSelectedSentence(null);
+    setSelectedVocabulary(null);
+    setProcessingTime(null);
+    
+    message.info('已重置，请重新选择文件和英语水平');
+  };
 
   /**
    * 句子点击处理
@@ -1004,6 +1033,34 @@ function App() {
   };
 
 
+  // 如果有错误状态，显示错误页面
+  if (errorState) {
+    return (
+      <div className="app-background">
+        <div className="main-container">
+          {/* 现代化头部 */}
+          <div className="app-header">
+            <h1 className="app-title">🎓 AI智能英语学习助手</h1>
+            <p style={{ color: 'rgba(255, 255, 255, 0.9)', margin: 0, fontSize: '1.1rem' }}>
+              文件处理遇到问题
+            </p>
+          </div>
+
+          <Content style={{ padding: '30px' }}>
+            <ErrorPage
+              errorState={errorState}
+              onRetry={handleErrorRetry}
+              onReset={handleErrorReset}
+              fileName={fileList[0]?.name}
+              englishLevel={englishLevel}
+              processingTime={processingTime}
+            />
+          </Content>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-background">
       <div className="main-container">
@@ -1227,12 +1284,7 @@ function App() {
                   <span className="loading-step-icon">🎯</span>
                   正在优化学习内容
                 </div>
-                {isRetrying && (
-                  <div className="loading-step" style={{ color: '#1890ff' }}>
-                    <Spin size="small" className="loading-step-icon" />
-                    <span>正在重试连接... ({retryCount}/3)</span>
-                  </div>
-                )}
+
               </div>
               
               <Text style={{ color: '#718096', marginTop: '16px', display: 'block', textAlign: 'center' }}>
@@ -1292,7 +1344,7 @@ function App() {
                               下载文本格式
                             </span>
                           ),
-                          onClick: ({ key }) => {
+                          onClick: () => {
                             console.log('🔧 [Dropdown] TXT选项被点击');
                             handleDownload('txt');
                           }

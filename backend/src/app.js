@@ -5,6 +5,7 @@
 
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const config = require('./config');
 const websocketService = require('./services/websocketService');
 const uploadRoutes = require('./routes/uploadRoutes');
@@ -45,6 +46,10 @@ class App {
 
     // JSON解析
     this.app.use(express.json());
+
+    // 静态文件服务 - 服务前端构建文件
+    const publicPath = path.join(__dirname, '..', 'public');
+    this.app.use(express.static(publicPath));
 
     // 请求日志
     this.app.use((req, res, next) => {
@@ -134,19 +139,21 @@ class App {
     // API路由
     this.app.use('/api', uploadRoutes);
     
-    // 根路径重定向到API
-    this.app.get('/', (req, res) => {
-      res.redirect('/api');
-    });
-
-    // 404处理
-    this.app.use('*', (req, res) => {
-      console.log('404 - 路径不存在', { path: req.originalUrl });
-      res.status(404).json({
-        error: '路径不存在',
-        code: 'NOT_FOUND',
-        path: req.originalUrl
-      });
+    // SPA路由处理 - 所有非API请求都返回index.html
+    this.app.get('*', (req, res) => {
+      // 如果是API请求但没有匹配到路由，返回404
+      if (req.path.startsWith('/api/')) {
+        console.log('404 - API路径不存在', { path: req.originalUrl });
+        return res.status(404).json({
+          error: '路径不存在',
+          code: 'NOT_FOUND',
+          path: req.originalUrl
+        });
+      }
+      
+      // 对于所有其他请求，返回React应用的index.html
+      const publicPath = path.join(__dirname, '..', 'public');
+      res.sendFile(path.join(publicPath, 'index.html'));
     });
   }
 

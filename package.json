@@ -6,8 +6,11 @@
   "scripts": {
     "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
     "build:all": "cd frontend && npm run build",
+    "build:prod": "cd frontend && npm run build:prod",
     "start:all": "cd backend && npm start",
     "dev:all": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "deploy:cloudbase": "npm run build:prod && cloudbase deploy",
+    "deploy:init": "npm install -g @cloudbase/cli && cloudbase login",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

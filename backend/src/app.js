@@ -60,13 +60,53 @@ class App {
    * 配置路由
    */
   setupRoutes() {
-    // 健康检查路由
-    this.app.get('/api/health', (req, res) => {
-      res.json({ 
-        status: 'healthy', 
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-      });
+    // 增强的健康检查路由
+    this.app.get('/api/health', async (req, res) => {
+      try {
+        const health = {
+          status: 'healthy',
+          timestamp: new Date().toISOString(),
+          uptime: process.uptime(),
+          memory: process.memoryUsage(),
+          version: process.version,
+          services: {
+            storage: 'healthy',
+            ai: 'healthy'
+          },
+          environment: {
+            nodeEnv: process.env.NODE_ENV || 'development',
+            storageType: process.env.STORAGE_TYPE || 'local'
+          }
+        };
+
+        // 检查存储服务状态
+        try {
+          const { StorageAdapterFactory } = require('./adapters');
+          const storageAdapter = StorageAdapterFactory.getInstance();
+          health.services.storage = 'healthy';
+        } catch (error) {
+          health.services.storage = 'error';
+          health.status = 'degraded';
+        }
+
+        // 检查AI服务状态（可选）
+        if (process.env.DEEPSEEK_API_KEY) {
+          health.services.ai = 'configured';
+        } else {
+          health.services.ai = 'not_configured';
+          if (process.env.NODE_ENV === 'production') {
+            health.status = 'degraded';
+          }
+        }
+
+        res.json(health);
+      } catch (error) {
+        res.status(503).json({
+          status: 'unhealthy',
+          timestamp: new Date().toISOString(),
+          error: error.message
+        });
+      }
     });
 
     // API密钥测试路由

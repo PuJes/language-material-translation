@@ -21,14 +21,27 @@ const config = {
         'http://localhost:5173'
       ];
       
-      // 在生产环境中添加Render前端URL
+      // 在生产环境中添加CloudBase和其他部署URL
       if (process.env.NODE_ENV === 'production') {
+        // CloudBase前端URL
+        if (process.env.CLOUDBASE_ENV_ID) {
+          baseOrigins.push(`https://${process.env.CLOUDBASE_ENV_ID}.tcloudbaseapp.com`);
+          baseOrigins.push(`https://${process.env.CLOUDBASE_ENV_ID}.ap-shanghai.tcb.qcloud.la`);
+        }
+        
+        // Render前端URL（向后兼容）
         baseOrigins.push('https://language-learning-frontend.onrender.com');
       }
       
       // 支持自定义前端URL环境变量
       if (process.env.FRONTEND_URL) {
         baseOrigins.push(process.env.FRONTEND_URL);
+      }
+      
+      // 支持CORS_ORIGINS环境变量（多个域名用逗号分隔）
+      if (process.env.CORS_ORIGINS) {
+        const customOrigins = process.env.CORS_ORIGINS.split(',').map(origin => origin.trim());
+        baseOrigins.push(...customOrigins);
       }
       
       return baseOrigins;
@@ -44,6 +57,19 @@ const config = {
     maxFileSize: 5 * 1024 * 1024, // 5MB
     allowedTypes: ['.txt', '.srt'],
     uploadDir: './uploads'
+  },
+
+  // CloudBase存储配置
+  storage: {
+    type: process.env.STORAGE_TYPE || 'local', // 'local' 或 'cloudbase'
+    uploadDir: process.env.UPLOAD_DIR || './uploads',
+    cloudbase: {
+      envId: process.env.CLOUDBASE_ENV_ID,
+      secretId: process.env.CLOUDBASE_SECRET_ID,
+      secretKey: process.env.CLOUDBASE_SECRET_KEY,
+      bucket: process.env.CLOUDBASE_BUCKET || 'language-learning-files',
+      region: process.env.CLOUDBASE_REGION || 'ap-shanghai'
+    }
   },
 
   // AI API配置

@@ -1,0 +1,57 @@
+{
+  "envId": "pj-0g94ylo61291e004",
+  "framework": {
+    "name": "language-learning-assistant",
+    "plugins": {
+      "client": {
+        "use": "@cloudbase/framework-plugin-website",
+        "inputs": {
+          "buildCommand": "cd frontend && npm run build",
+          "outputPath": "frontend/dist",
+          "cloudPath": "/",
+          "ignore": [
+            ".git",
+            ".github", 
+            "node_modules",
+            "backend",
+            ".kiro",
+            "*.md",
+            ".gitignore"
+          ],
+          "envVariables": {},
+          "installCommand": "cd frontend && npm install"
+        }
+      },
+      "server": {
+        "use": "@cloudbase/framework-plugin-container",
+        "inputs": {
+          "serviceName": "language-learning-api",
+          "servicePath": "/api",
+          "dockerfilePath": "./Dockerfile",
+          "buildDir": "./backend",
+          "cpu": 1,
+          "mem": 2,
+          "minNum": 1,
+          "maxNum": 10,
+          "policyType": "cpu",
+          "policyThreshold": 70,
+          "containerPort": 3001,
+          "envVariables": {
+            "NODE_ENV": "production",
+            "PORT": "3001"
+          },
+          "customLogs": "stdout",
+          "initialDelaySeconds": 10,
+          "dockerfile": {
+            "writeFile": true,
+            "content": "FROM node:18-alpine\n\nWORKDIR /app\n\n# Copy package files\nCOPY package*.json ./\n\n# Install dependencies\nRUN npm ci --only=production\n\n# Copy source code\nCOPY . .\n\n# Create necessary directories\nRUN mkdir -p logs uploads\n\n# Expose port\nEXPOSE 3001\n\n# Health check\nHEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \\\n  CMD curl -f http://localhost:3001/api/health || exit 1\n\n# Start the application\nCMD [\"npm\", \"start\"]"
+          }
+        }
+      }
+    }
+  },
+  "region": "ap-shanghai",
+  "functionRoot": "./functions",
+  "storageRoot": "./storage",
+  "$schema": "https://framework-1258016615.tcloudbaseapp.com/schema/latest.json"
+}

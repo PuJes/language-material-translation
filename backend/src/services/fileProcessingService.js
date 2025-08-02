@@ -9,11 +9,13 @@ const Logger = require('../utils/logger');
 const config = require('../config');
 const aiService = require('./aiService');
 const websocketService = require('./websocketService');
+const { StorageAdapterFactory } = require('../adapters');
 
 class FileProcessingService {
   constructor() {
     this.uploadDir = config.upload.uploadDir;
     this.allowedTypes = config.upload.allowedTypes;
+    this.storageAdapter = StorageAdapterFactory.getInstance();
   }
 
   /**
@@ -39,9 +41,18 @@ class FileProcessingService {
       // 日志进度（替代websocket）
       Logger.info('开始上传和解析文件...', { clientId });
 
-      // 读取文件内容
-      const content = fs.readFileSync(file.path, 'utf-8');
+      // 读取文件内容 - 支持存储适配器
+      let content;
       const ext = path.extname(file.originalname).toLowerCase();
+      
+      try {
+        // 优先使用本地文件系统（当前multer保存的文件）
+        content = fs.readFileSync(file.path, 'utf-8');
+      } catch (error) {
+        Logger.warn('直接读取文件失败，尝试使用存储适配器', { error: error.message });
+        // 如果直接读取失败，可以在这里集成云存储读取逻辑
+        throw error;
+      }
 
       // 日志文件解析进度
       Logger.info('正在解析文件内容...', { clientId });

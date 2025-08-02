@@ -3,15 +3,15 @@
 <div align="center">
 
 [![Language](https://img.shields.io/badge/Language-Chinese%20%2F%20English-blue)](README.md)
-[![React](https://img.shields.io/badge/React-18.3-blue)](https://react.dev/)
+[![React](https://img.shields.io/badge/React-19.1-blue)](https://react.dev/)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-green)](https://nodejs.org/)
 [![AI](https://img.shields.io/badge/AI-DeepSeek-purple)](https://deepseek.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Docker](https://img.shields.io/badge/Docker-Ready-blue)](Dockerfile)
 
 **🚀 将英语字幕转化为个性化学习材料的AI助手**
 
-[📖 项目文档](#-项目概述) • [🚀 快速开始](#-快速开始) • [📖 使用指南](#-使用指南) 
+[📖 项目概述](#-项目概述) • [🚀 快速开始](#-快速开始) • [📖 使用指南](#-使用指南) • [🐳 Docker部署](#-docker部署)
 
 </div>
 
@@ -34,26 +34,30 @@
 ## 🛠️ 技术栈
 
 ### 前端技术栈
-- **框架**: React 18.3 + Vite 5.0
+- **框架**: React 19.1 + Vite 7.0
 - **UI库**: Ant Design 5.26
 - **状态管理**: React Hooks
 - **样式**: CSS3 + 渐变动画
 - **构建工具**: Vite
 - **HTTP客户端**: Axios
+- **WebSocket**: 原生WebSocket API
 
 ### 后端技术栈
 - **运行时**: Node.js 18+
-- **框架**: Express.js 5.1
-- **文件处理**: Multer 2.0
+- **框架**: Express.js 4.18
+- **文件处理**: Multer 1.4
 - **AI集成**: DeepSeek Chat API
-- **实时通信**: WebSocket
-- **环境管理**: dotenv
+- **实时通信**: WebSocket (ws 8.14)
+- **环境管理**: dotenv 16.3
+- **日志系统**: Winston 3.11
+- **云服务**: CloudBase SDK 2.8
 
 ### 部署与运维
-- **容器化**: Docker + Docker Compose
-- **CI/CD**: GitHub Actions
-- **监控**: 健康检查端点
-- **日志**: Winston日志系统
+- **容器化**: Docker多阶段构建
+- **健康检查**: 内置健康检查端点
+- **日志管理**: Winston结构化日志
+- **错误处理**: 完善的错误重试机制
+- **性能优化**: 连接保持 + 动态超时
 
 ---
 
@@ -70,17 +74,29 @@
 │   │   └── 📁 assets/             # 静态资源
 │   ├── 📄 package.json            # 前端依赖
 │   ├── 📄 vite.config.js          # Vite配置
-│   ├── 📄 .gitignore              # Git忽略规则
-│   └── 📄 README.md               # 前端文档
-├── 📁 backend/                    # Node.js后端服务
-│   ├── 📄 server.js               # 主服务器文件
-│   ├── 📄 index.js                # 入口文件
+│   └── 📄 .gitignore              # Git忽略规则
+├── 📁 backend/                    # Node.js后端服务 (重构版本)
+│   ├── 📁 src/                    # 源代码目录
+│   │   ├── 📄 index.js            # 应用入口
+│   │   ├── 📄 app.js              # Express应用配置
+│   │   ├── 📁 config/             # 配置文件
+│   │   ├── 📁 controllers/        # 控制器层
+│   │   ├── 📁 services/           # 业务逻辑层
+│   │   ├── 📁 routes/             # 路由定义
+│   │   ├── 📁 middleware/         # 中间件
+│   │   ├── 📁 utils/              # 工具函数
+│   │   └── 📁 adapters/           # 外部服务适配器
 │   ├── 📄 package.json            # 后端依赖
-│   ├── 📄 .env.example            # 环境变量模板
-├── 📄 .gitignore                  # 全局Git忽略
-├── 📄 README.md                   # 项目文档
-├── 📄 DEPLOYMENT_GUIDE.md         # 部署指南
-└── 📄 LICENSE                     # 许可证
+│   └── 📄 .env                    # 环境变量配置
+├── 📁 language-learning-functions/ # CloudBase云函数
+├── 📁 scripts/                    # 部署和构建脚本
+├── 📄 package.json                # 根项目配置
+├── 📄 Dockerfile                  # Docker构建文件
+├── 📄 cloudbaserc.json            # CloudBase配置
+├── 📄 DEPLOYMENT.md               # 部署指南
+├── 📄 CloudBase部署方案.md         # CloudBase部署文档
+├── 📄 项目架构分析报告.md          # 架构分析
+└── 📄 README.md                   # 项目文档
 ```
 
 ---
@@ -115,28 +131,49 @@ cd ../backend && npm install
 
 #### 3. 配置环境变量
 ```bash
-# 复制环境变量模板
+# 进入后端目录
 cd backend
-cp .env.example .env
 
-# 编辑.env文件，添加你的DeepSeek API密钥
-echo "DEEPSEEK_API_KEY=your_api_key_here" >> .env
+# 编辑.env文件，配置你的DeepSeek API密钥
+# 文件内容示例：
+cat > .env << EOF
+# DeepSeek API Configuration
+DEEPSEEK_API_KEY=your_actual_api_key_here
+DEEPSEEK_API_URL=https://api.deepseek.com/v1/chat/completions
+
+# Server Configuration
+PORT=3001
+HOST=0.0.0.0
+NODE_ENV=development
+
+# Frontend URL (for CORS)
+FRONTEND_URL=http://localhost:5173
+EOF
 ```
+
+> ⚠️ **重要**: 请将 `your_actual_api_key_here` 替换为你的真实DeepSeek API密钥
 
 #### 4. 启动服务
 
-**开发模式：**
+**开发模式（推荐）：**
 ```bash
+# 方式1: 一键启动前后端
+npm run dev:all
+
+# 方式2: 分别启动
 # 终端1 - 启动后端
 cd backend && npm run dev
 
-# 终端2 - 启动前端
+# 终端2 - 启动前端  
 cd frontend && npm run dev
 ```
 
 **生产模式：**
 ```bash
-# 一键启动
+# 构建前端
+npm run build:all
+
+# 启动后端服务
 npm run start:all
 ```
 
@@ -185,7 +222,102 @@ curl -X POST http://localhost:3001/api/upload \
 2. 拖拽或点击上传字幕文件
 3. 选择适合的英语水平
 4. 点击"开始智能分析"
-5. 查看结果并下载HTML学习材料
+5. 实时查看处理进度
+6. 查看结果并下载HTML学习材料
+
+### 🔌 API接口文档
+
+#### 文件上传接口
+```bash
+POST /api/upload
+Content-Type: multipart/form-data
+
+# 参数
+- file: 字幕文件 (.txt/.srt)
+- englishLevel: 英语水平 (CET-4/CET-6/IELTS/TOEFL)
+- clientId: 客户端标识符
+
+# 响应
+{
+  "success": true,
+  "message": "文件上传成功",
+  "clientId": "client_id_here"
+}
+```
+
+#### 健康检查接口
+```bash
+GET /api/health
+
+# 响应
+{
+  "status": "healthy",
+  "timestamp": "2025-08-02T14:28:01.602Z",
+  "services": {
+    "ai": "configured",
+    "storage": "available"
+  }
+}
+```
+
+#### WebSocket连接
+```javascript
+// 连接WebSocket获取实时进度
+const ws = new WebSocket('ws://localhost:3001');
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log('处理进度:', data);
+};
+```
+
+## 🐳 Docker部署
+
+### 快速部署
+```bash
+# 构建Docker镜像
+docker build -t language-learning-assistant .
+
+# 运行容器
+docker run -d \
+  --name language-learning \
+  -p 3000:3000 \
+  -e DEEPSEEK_API_KEY=your_api_key_here \
+  language-learning-assistant
+
+# 查看运行状态
+docker ps
+docker logs language-learning
+```
+
+### 环境变量配置
+```bash
+# 创建环境变量文件
+cat > .env.docker << EOF
+DEEPSEEK_API_KEY=your_api_key_here
+DEEPSEEK_API_URL=https://api.deepseek.com/v1/chat/completions
+PORT=3000
+NODE_ENV=production
+EOF
+
+# 使用环境变量文件运行
+docker run -d \
+  --name language-learning \
+  -p 3000:3000 \
+  --env-file .env.docker \
+  language-learning-assistant
+```
+
+### 健康检查
+```bash
+# 检查应用健康状态
+curl http://localhost:3000/api/health
+
+# 查看容器健康状态
+docker inspect --format='{{.State.Health.Status}}' language-learning
+```
+
+---
 
 ## 🔍 故障排除
 
@@ -204,8 +336,17 @@ kill -9 <PID>
 #### 2. API密钥错误
 ```bash
 # 验证API密钥
-curl -H "Authorization: Bearer YOUR_API_KEY" \
-  https://api.deepseek.com/v1/models
+curl -X POST "https://api.deepseek.com/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "deepseek-chat",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "max_tokens": 10
+  }'
+
+# 检查后端环境变量
+cd backend && cat .env | grep DEEPSEEK_API_KEY
 ```
 
 #### 3. 文件上传失败
@@ -224,18 +365,70 @@ curl -H "Authorization: Bearer YOUR_API_KEY" \
 tail -f backend/logs/app.log
 
 # Docker日志
-docker-compose logs -f backend
-docker-compose logs -f frontend
+docker logs -f language-learning
+
+# 实时查看处理进度
+# 打开浏览器开发者工具，查看WebSocket连接和消息
 ```
+
+### 性能优化建议
+- **大文件处理**: 系统自动分块处理大于15KB的文件
+- **API调用优化**: 内置重试机制和动态超时
+- **缓存策略**: 避免重复处理相同内容
+- **内存管理**: 及时清理临时文件和日志
+
+---
+
+## 🛠️ 开发指南
+
+### 项目架构
+- **前端**: React SPA，使用Vite构建，Ant Design UI组件
+- **后端**: Express.js RESTful API + WebSocket实时通信
+- **AI服务**: DeepSeek Chat API集成，支持大文件分块处理
+- **存储**: 本地文件系统 + CloudBase云存储支持
+
+### 开发环境设置
+```bash
+# 安装开发依赖
+npm install -g nodemon concurrently
+
+# 启用ESLint检查
+cd backend && npm run lint
+cd frontend && npm run lint
+
+# 清理临时文件
+cd backend && npm run clean
+```
+
+### 代码结构说明
+```bash
+backend/src/
+├── config/         # 配置管理 (API密钥、超时设置等)
+├── controllers/    # 请求处理器 (文件上传、健康检查)
+├── services/       # 业务逻辑 (AI处理、文件解析)
+├── routes/         # 路由定义 (API端点)
+├── middleware/     # 中间件 (CORS、错误处理、日志)
+├── utils/          # 工具函数 (文件处理、格式转换)
+└── adapters/       # 外部服务适配 (DeepSeek API)
+```
+
+### 贡献指南
+1. Fork项目到你的GitHub账户
+2. 创建功能分支: `git checkout -b feature/your-feature`
+3. 提交更改: `git commit -am 'Add some feature'`
+4. 推送分支: `git push origin feature/your-feature`
+5. 创建Pull Request
 
 ---
 
 ## 🙏 致谢
 
-- [DeepSeek](https://deepseek.com/) 提供强大的AI能力
-- [Ant Design](https://ant.design/) 提供精美的UI组件
-- [Vite](https://vitejs.dev/) 提供快速的构建工具
-- [Express](https://expressjs.com/) 提供稳定的后端框架
+- [DeepSeek](https://deepseek.com/) 提供强大的AI语言处理能力
+- [Ant Design](https://ant.design/) 提供精美的React UI组件库
+- [Vite](https://vitejs.dev/) 提供快速的前端构建工具
+- [Express](https://expressjs.com/) 提供稳定可靠的后端框架
+- [Winston](https://github.com/winstonjs/winston) 提供结构化日志系统
+- [CloudBase](https://cloud.tencent.com/product/tcb) 提供云端部署支持
 
 ---
 

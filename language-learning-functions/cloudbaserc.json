@@ -1,0 +1,74 @@
+{
+  "envId": "your-env-id",
+  "framework": {
+    "name": "language-learning-functions",
+    "plugins": {
+      "client": {
+        "use": "@cloudbase/framework-plugin-website",
+        "inputs": {
+          "buildCommand": "cd frontend && npm run build",
+          "outputPath": "frontend/dist",
+          "cloudPath": "/",
+          "ignore": [
+            ".git",
+            ".github", 
+            "node_modules",
+            "functions",
+            ".kiro",
+            "*.md",
+            ".gitignore"
+          ],
+          "envVariables": {},
+          "installCommand": "cd frontend && npm install"
+        }
+      },
+      "functions": {
+        "use": "@cloudbase/framework-plugin-function",
+        "inputs": {
+          "functionRootPath": "./functions",
+          "functions": [
+            {
+              "name": "upload",
+              "timeout": 60,
+              "memorySize": 256,
+              "runtime": "Nodejs18",
+              "envVariables": {
+                "NODE_ENV": "production"
+              }
+            },
+            {
+              "name": "process",
+              "timeout": 900,
+              "memorySize": 512,
+              "runtime": "Nodejs18",
+              "envVariables": {
+                "NODE_ENV": "production",
+                "DEEPSEEK_API_KEY": "${env.DEEPSEEK_API_KEY}"
+              }
+            },
+            {
+              "name": "status",
+              "timeout": 10,
+              "memorySize": 128,
+              "runtime": "Nodejs18",
+              "envVariables": {
+                "NODE_ENV": "production"
+              }
+            },
+            {
+              "name": "download",
+              "timeout": 30,
+              "memorySize": 256,
+              "runtime": "Nodejs18",
+              "envVariables": {
+                "NODE_ENV": "production"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "region": "ap-shanghai",
+  "$schema": "https://framework-1258016615.tcloudbaseapp.com/schema/latest.json"
+}

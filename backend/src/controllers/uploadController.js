@@ -6,7 +6,6 @@
 const Logger = require('../utils/logger');
 const config = require('../config');
 const fileProcessingService = require('../services/fileProcessingService');
-const websocketService = require('../services/websocketService');
 const NetworkDiagnostic = require('../utils/networkDiagnostic');
 
 class UploadController {
@@ -26,7 +25,7 @@ class UploadController {
         clientId 
       });
 
-      // 客户端ID现在是可选的（移除websocket依赖）
+      // 生成处理ID
       const processId = clientId || `http_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       // 验证文件
@@ -46,7 +45,7 @@ class UploadController {
         return res.errorResponse.badRequest('无效的英语水平', 'INVALID_ENGLISH_LEVEL');
       }
 
-      // 同步处理文件（移除websocket异步模式）
+      // 同步处理文件
       try {
         const result = await fileProcessingService.processFile(file, englishLevel, processId);
         
@@ -108,11 +107,10 @@ class UploadController {
           code: level,
           ...config.englishLevels[level]
         })),
-        websocketClients: websocketService.getClientCount(),
         serverTime: new Date().toISOString()
       };
 
-      Logger.info('获取系统信息', { clientCount: info.websocketClients });
+      Logger.info('获取系统信息');
       return res.successResponse(info, '系统信息获取成功');
 
     } catch (error) {
@@ -131,7 +129,6 @@ class UploadController {
       status: 'healthy',
       uptime: process.uptime(),
       memory: process.memoryUsage(),
-      websocketClients: websocketService.getClientCount(),
       timestamp: new Date().toISOString()
     };
 

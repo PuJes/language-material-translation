@@ -148,20 +148,6 @@ class Logger {
     }
   }
 
-  /**
-   * 记录WebSocket事件
-   * @param {string} event - 事件类型
-   * @param {string} clientId - 客户端ID
-   * @param {object} meta - 额外信息
-   */
-  static websocket(event, clientId, meta = {}) {
-    if (currentLevel >= LOG_LEVELS.info) {
-      const message = `WebSocket ${event}: ${clientId}`;
-      const formatted = formatLog('websocket', message, meta);
-      console.log(`🔌 ${formatted}`);
-      writeToFile('info', message, meta);
-    }
-  }
 }
 
 module.exports = Logger; 

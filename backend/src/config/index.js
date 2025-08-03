@@ -99,12 +99,6 @@ const config = {
     }
   },
 
-  // WebSocket配置
-  websocket: {
-    heartbeatInterval: 30000, // 30秒心跳
-    maxReconnectAttempts: 5,
-    reconnectDelay: 2000
-  },
 
   // 处理配置
   processing: {

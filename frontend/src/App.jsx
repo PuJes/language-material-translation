@@ -1073,7 +1073,7 @@ function App() {
         <div className="app-header">
           <h1 className="app-title">🎓 AI智能语言学习助手</h1>
           <p style={{ color: 'rgba(255, 255, 255, 0.9)', margin: 0, fontSize: '1.1rem' }}>
-            将材料转化为个性化的语言学习材料，锻炼语言思维 {result }
+            将材料转化为个性化的语言学习材料，锻炼语言思维
           </p>
         </div>
 

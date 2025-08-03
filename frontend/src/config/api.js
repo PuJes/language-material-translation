@@ -1,6 +1,6 @@
 /**
  * Frontend API Configuration Module
- * Provides environment-aware API and WebSocket URL configuration
+ * Provides environment-aware API URL configuration
  */
 
 // Environment detection
@@ -15,22 +15,13 @@ const getProtocol = () => {
   return isProduction ? 'https' : 'http';
 };
 
-const getWebSocketProtocol = () => {
-  if (typeof window !== 'undefined') {
-    return window.location.protocol === 'https:' ? 'wss' : 'ws';
-  }
-  return isProduction ? 'wss' : 'ws';
-};
-
 // Environment-specific configuration
 const getEnvironmentConfig = () => {
   const protocol = getProtocol();
-  const wsProtocol = getWebSocketProtocol();
   
   if (isDevelopment) {
     return {
       apiUrl: import.meta.env.VITE_API_URL || `${protocol}://localhost:3001`,
-      wsUrl: import.meta.env.VITE_WS_URL || `${wsProtocol}://localhost:3001`,
       environment: 'development'
     };
   }
@@ -42,14 +33,8 @@ const getEnvironmentConfig = () => {
                     `${protocol}://${window.location.hostname}` : 
                     `${protocol}://language-learning-backend.onrender.com`);
     
-    const wsUrl = import.meta.env.VITE_WS_URL || 
-                  (typeof window !== 'undefined' ? 
-                   `${wsProtocol}://${window.location.hostname}` : 
-                   `${wsProtocol}://language-learning-backend.onrender.com`);
-    
     return {
       apiUrl,
-      wsUrl,
       environment: 'production'
     };
   }
@@ -57,7 +42,6 @@ const getEnvironmentConfig = () => {
   // Fallback configuration
   return {
     apiUrl: `${protocol}://localhost:3001`,
-    wsUrl: `${wsProtocol}://localhost:3001`,
     environment: 'development'
   };
 };
@@ -66,9 +50,7 @@ const getEnvironmentConfig = () => {
 export const API_CONFIG = {
   ...getEnvironmentConfig(),
   timeout: parseInt(import.meta.env.VITE_API_TIMEOUT) || 600000,
-  retries: parseInt(import.meta.env.VITE_API_RETRIES) || 3,
-  reconnectDelay: parseInt(import.meta.env.VITE_WS_RECONNECT_DELAY) || 2000,
-  maxReconnectAttempts: parseInt(import.meta.env.VITE_WS_MAX_RECONNECT_ATTEMPTS) || 5
+  retries: parseInt(import.meta.env.VITE_API_RETRIES) || 3
 };
 
 /**
@@ -83,13 +65,6 @@ export const getApiUrl = (endpoint = '') => {
   return `${baseUrl}${normalizedEndpoint}`;
 };
 
-/**
- * Get the WebSocket URL
- * @returns {string} - WebSocket URL
- */
-export const getWebSocketUrl = () => {
-  return API_CONFIG.wsUrl;
-};
 
 /**
  * Get current environment information
@@ -101,9 +76,7 @@ export const getEnvironmentInfo = () => {
     isProduction,
     environment: API_CONFIG.environment,
     protocol: getProtocol(),
-    wsProtocol: getWebSocketProtocol(),
-    apiUrl: API_CONFIG.apiUrl,
-    wsUrl: API_CONFIG.wsUrl
+    apiUrl: API_CONFIG.apiUrl
   };
 };
 
@@ -118,16 +91,9 @@ export const validateConfiguration = () => {
     // Basic URL validation
     const apiUrlValid = config.apiUrl && 
                        (config.apiUrl.startsWith('http://') || config.apiUrl.startsWith('https://'));
-    const wsUrlValid = config.wsUrl && 
-                      (config.wsUrl.startsWith('ws://') || config.wsUrl.startsWith('wss://'));
     
     if (!apiUrlValid) {
       console.error('[API Config] Invalid API URL:', config.apiUrl);
-      return false;
-    }
-    
-    if (!wsUrlValid) {
-      console.error('[API Config] Invalid WebSocket URL:', config.wsUrl);
       return false;
     }
     

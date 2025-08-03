@@ -8,7 +8,6 @@ const path = require('path');
 const Logger = require('../utils/logger');
 const config = require('../config');
 const aiService = require('./aiService');
-const websocketService = require('./websocketService');
 const { StorageAdapterFactory } = require('../adapters');
 
 class FileProcessingService {

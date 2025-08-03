@@ -7,7 +7,6 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const config = require('./config');
-const websocketService = require('./services/websocketService');
 const uploadRoutes = require('./routes/uploadRoutes');
 const { ErrorResponse, extendResponse } = require('./utils/errorResponse');
 
@@ -192,10 +191,6 @@ class App {
           console.log(`   - API端点: http://localhost:${config.server.port}/api/upload`);
           console.log(`   - 优化模式: 批量处理已启用`);
 
-          // 初始化WebSocket服务
-          websocketService.initialize(this.server);
-          websocketService.startHeartbeat();
-
           resolve();
         });
 
@@ -218,9 +213,6 @@ class App {
     console.log('正在优雅关闭服务器...');
 
     try {
-      // 关闭WebSocket服务
-      websocketService.close();
-
       // 关闭HTTP服务器
       if (this.server) {
         this.server.close(() => {

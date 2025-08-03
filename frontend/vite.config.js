@@ -18,17 +18,10 @@ export default defineConfig(({ command, mode }) => {
     
     // Server configuration for development
     server: {
-      port: 3000,
+      port: 5173, // 修改为你想要的端口
       host: true, // Allow external connections
       cors: true,
-      // Proxy API calls to backend during development if needed
-      proxy: mode === 'development' ? {
-        '/api': {
-          target: env.VITE_API_URL || 'http://localhost:3001',
-          changeOrigin: true,
-          secure: false,
-        }
-      } : undefined
+      // 移除代理配置，因为前端直接使用完整的API URL
     },
     
     // Build configuration
@@ -52,7 +45,7 @@ export default defineConfig(({ command, mode }) => {
     
     // Preview server configuration (for production builds)
     preview: {
-      port: 3000,
+      port: 5173, // 修改为你想要的端口
       host: true,
       cors: true,
     }

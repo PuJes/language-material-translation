@@ -324,9 +324,13 @@ function App() {
       clearProgressInterval();
       
       // HTTP 响应包含完整结果
-      if (response.data && response.data.result) {
-        setResult(response.data.result);
-        setProcessingTime(response.data.processingTime);
+      // 兼容两种响应格式：直接格式和标准包装格式
+      const responseResult = response.data.result || response.data.data?.result;
+      const responseProcessingTime = response.data.processingTime || response.data.data?.processingTime;
+      
+      if (responseResult) {
+        setResult(responseResult);
+        setProcessingTime(responseProcessingTime);
         setProcessingProgress(100);
         setProcessingStage('✅ 处理完成！');
         setErrorState(null); // 清除任何之前的错误状态
@@ -335,11 +339,12 @@ function App() {
           setLoading(false);
           setProcessingStage('');
           message.success({
-            content: `✅ 分析完成！用时 ${(response.data.processingTime / 1000).toFixed(1)} 秒`,
+            content: `✅ 分析完成！用时 ${(responseProcessingTime / 1000).toFixed(1)} 秒`,
             duration: 3
           });
         }, 500);
       } else {
+        console.error('响应格式错误:', response.data);
         throw new Error('Invalid response format');
       }
 
@@ -1066,63 +1071,139 @@ function App() {
       <div className="main-container">
         {/* 现代化头部 */}
         <div className="app-header">
-          <h1 className="app-title">🎓 AI智能英语学习助手</h1>
+          <h1 className="app-title">🎓 AI智能语言学习助手</h1>
           <p style={{ color: 'rgba(255, 255, 255, 0.9)', margin: 0, fontSize: '1.1rem' }}>
-            将影视字幕转化为个性化学习材料 {result && processingTime && (
-              <span style={{ fontSize: '0.9rem', opacity: 0.8 }}>
-                ⚡ 已优化处理速度
-              </span>
-            )}
+            将材料转化为个性化的语言学习材料，锻炼语言思维 {result }
           </p>
         </div>
 
         <Content style={{ padding: '30px' }}>
-          {/* 欢迎卡片 */}
+          {/* 紧凑用户指引 */}
           {!result && !loading && (
-            <Card className="welcome-card">
-              <div className="welcome-content">
-                <div className="welcome-icon">
-                  <BookOutlined />
-                </div>
-                <Title level={3} style={{ color: '#667eea', marginBottom: '16px' }}>
-                  欢迎使用智能语言学习助手
-                </Title>
-                <Paragraph style={{ fontSize: '16px', color: '#4a5568', marginBottom: '16px' }}>
-                  上传英语字幕文件，我们将为您生成个性化的学习材料，包括句子解释、重点词汇分析和互动式学习体验。
-                </Paragraph>
-                <div style={{ background: 'linear-gradient(135deg, #e8f5e8, #f0fff0)', padding: '12px', borderRadius: '8px', border: '1px solid #52c41a' }}>
-                  <Text style={{ color: '#389e0d', fontSize: '14px' }}>
-                    <ThunderboltOutlined /> 新功能：采用批量处理技术，分析速度提升 3-5 倍！
+            <div style={{ 
+              background: 'linear-gradient(135deg, #f8faff 0%, #f0f4ff 100%)', 
+              borderRadius: '12px', 
+              padding: '20px', 
+              marginBottom: '24px',
+              border: '1px solid #e1e5e9'
+            }}>
+              <Row gutter={[16, 16]} align="middle">
+                <Col span={18}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                    <BookOutlined style={{ fontSize: '24px', color: '#667eea' }} />
+                    <Title level={5} style={{ margin: 0, color: '#667eea' }}>
+                      AI智能英语学习助手
+                    </Title>
+                  </div>
+                  <Text style={{ fontSize: '14px', color: '#4a5568' }}>
+                    上传英语字幕文件(.txt/.srt)，AI为您生成个性化学习材料，包含句子解释和重点词汇分析
                   </Text>
-                </div>
-              </div>
-            </Card>
+                </Col>
+                <Col span={6} style={{ textAlign: 'right' }}>
+                  <Button 
+                    icon={<DownloadOutlined />}
+                    size="small"
+                    type="primary"
+                    onClick={() => handleDemoDownload()}
+                    style={{
+                      background: 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)',
+                      border: 'none',
+                      borderRadius: '16px',
+                      fontSize: '12px',
+                      height: '32px'
+                    }}
+                  >
+                    效果展示
+                  </Button>
+                </Col>
+              </Row>
+            </div>
           )}
 
-          {/* 演示下载区域 */}
+          {/* 使用指引 */}
           {!result && !loading && (
-            <Card style={{ marginBottom: '24px', textAlign: 'center', background: 'linear-gradient(135deg, #e8f5e8, #f0fff0)', border: '1px solid #52c41a' }}>
-              <Title level={5} style={{ color: '#389e0d', marginBottom: '16px' }}>
-                🎯 立即体验下载功能
-              </Title>
-              <Paragraph style={{ color: '#389e0d', marginBottom: '16px' }}>
-                无需上传文件，点击下方按钮立即下载演示版学习材料，体验完整的交互功能！
-              </Paragraph>
-              <Button 
-                icon={<DownloadOutlined />}
-                size="large"
-                type="primary"
-                onClick={() => handleDemoDownload()}
-                style={{
-                  background: 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)',
-                  color: 'white',
-                  border: 'none',
-                  height: '48px',
-                  fontSize: '16px'
-                }}
-              >
-                🎯 下载演示版学习材料
-              </Button>
+            <Card style={{ 
+              marginBottom: '20px', 
+              background: 'linear-gradient(135deg, #fff9e6 0%, #fff5d6 100%)',
+              border: '1px solid #faad14'
+            }}>
+              <Row gutter={[16, 8]} align="middle">
+                <Col span={24}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ 
+                        background: '#faad14', 
+                        color: 'white', 
+                        borderRadius: '50%', 
+                        width: '24px', 
+                        height: '24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '12px',
+                        fontWeight: 'bold'
+                      }}>1</div>
+                      <Text style={{ fontSize: '13px', color: '#8c4a00' }}>
+                        <FileTextOutlined /> 上传英文字幕文件(.txt/.srt)
+                      </Text>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ 
+                        background: '#faad14', 
+                        color: 'white', 
+                        borderRadius: '50%', 
+                        width: '24px', 
+                        height: '24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '12px',
+                        fontWeight: 'bold'
+                      }}>2</div>
+                      <Text style={{ fontSize: '13px', color: '#8c4a00' }}>
+                        <GlobalOutlined /> 选择英语水平(CET-4/6/雅思/托福)
+                      </Text>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ 
+                        background: '#faad14', 
+                        color: 'white', 
+                        borderRadius: '50%', 
+                        width: '24px', 
+                        height: '24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '12px',
+                        fontWeight: 'bold'
+                      }}>3</div>
+                      <Text style={{ fontSize: '13px', color: '#8c4a00' }}>
+                        <RocketOutlined /> 开始智能分析
+                      </Text>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ 
+                        background: '#faad14', 
+                        color: 'white', 
+                        borderRadius: '50%', 
+                        width: '24px', 
+                        height: '24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '12px',
+                        fontWeight: 'bold'
+                      }}>4</div>
+                      <Text style={{ fontSize: '13px', color: '#8c4a00' }}>
+                        <DownloadOutlined /> 下载学习材料
+                      </Text>
+                    </div>
+                  </div>
+                </Col>
+              </Row>
             </Card>
           )}
 
@@ -1204,7 +1285,7 @@ function App() {
                     {loading ? '智能分析中...' : '开始智能分析'}
                   </Button>
                   <div style={{ marginTop: '12px', fontSize: '13px', color: '#718096' }}>
-                    <ThunderboltOutlined /> 批量处理技术，预计处理时间：30-60秒
+                    <ThunderboltOutlined /> 批量处理技术，预计处理时间：1-20分钟
                   </div>
                 </Col>
               </Row>
@@ -1254,7 +1335,7 @@ function App() {
                   <Text style={{ fontSize: '13px', color: processingProgress === 100 ? '#52c41a' : '#718096' }}>
                     {processingProgress === 100 && '🎉 处理完成！正在为您展示结果...'}
                     {processingProgress < 25 && processingProgress > 0 && '🚀 文件上传与解析阶段'}
-                    {processingProgress >= 25 && processingProgress < 50 && '⚡ AI分析优化中（批量处理技术）'}
+                    {processingProgress >= 25 && processingProgress < 50 && '⚡ AI分析优化中'}
                     {processingProgress >= 50 && processingProgress < 75 && '📖 智能解释生成中'}
                     {processingProgress >= 75 && processingProgress < 90 && '🎯 词汇分析与优化'}
                     {processingProgress >= 90 && processingProgress < 100 && '✨ 最后整理与优化'}
@@ -1269,27 +1350,30 @@ function App() {
               {/* 处理提示 */}
               <div className="loading-steps">
                 <div className="loading-step">
-                  <span className="loading-step-icon">⚡</span>
-                  使用批量处理技术，大幅提升处理速度
-                </div>
-                <div className="loading-step">
                   <span className="loading-step-icon">🤖</span>
-                  AI正在批量生成英文解释
+                  AI智能分析文本结构
                 </div>
                 <div className="loading-step">
                   <span className="loading-step-icon">📚</span>
-                  正在快速分析重点词汇
+                  生成句子解释和词汇分析
                 </div>
                 <div className="loading-step">
                   <span className="loading-step-icon">🎯</span>
-                  正在优化学习内容
+                  优化学习材料格式
                 </div>
-
               </div>
               
-              <Text style={{ color: '#718096', marginTop: '16px', display: 'block', textAlign: 'center' }}>
-                优化后的处理时间：约30-60秒（短文档）| 2-8分钟（长文档），请耐心等待真实进度
-              </Text>
+              <div style={{ 
+                background: 'linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%)', 
+                borderRadius: '8px', 
+                padding: '12px', 
+                marginTop: '20px',
+                border: '1px solid #1890ff'
+              }}>
+                <Text style={{ color: '#096dd9', fontSize: '13px', textAlign: 'center', display: 'block' }}>
+                  💡 <strong>小贴士：</strong>处理时间约30-60秒，请耐心等待。文件越大处理时间越长，可能部分文件超过数分钟，请保持耐心，建议使用小于1MB的文件以获得最佳体验，可以适当将文件分成几部分的进行上传。
+                </Text>
+              </div>
             </div>
           )}
 
@@ -1317,72 +1401,6 @@ function App() {
                     }}
                   >
                     📥 下载HTML学习材料
-                  </Button>
-                  
-                  {/* 高级下载选项（Dropdown菜单） */}
-                  <Dropdown
-                    menu={{
-                      items: [
-                        {
-                          key: 'html',
-                          label: (
-                            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <FilePdfOutlined style={{ color: '#ff6b35' }} />
-                              下载HTML格式 (推荐)
-                            </span>
-                          ),
-                          onClick: ({ key }) => {
-                            console.log('🔧 [Dropdown] HTML选项被点击');
-                            handleDownload('html');
-                          }
-                        },
-                        {
-                          key: 'txt',
-                          label: (
-                            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <FileExclamationOutlined style={{ color: '#52c41a' }} />
-                              下载文本格式
-                            </span>
-                          ),
-                          onClick: () => {
-                            console.log('🔧 [Dropdown] TXT选项被点击');
-                            handleDownload('txt');
-                          }
-                        }
-                      ]
-                    }}
-                    onOpenChange={(visible) => {
-                      console.log('🔧 [Dropdown] 下拉菜单状态变化:', visible);
-                    }}
-                    placement="bottomCenter"
-                  >
-                    <Button 
-                      className="download-button"
-                      icon={<DownloadOutlined />}
-                      size="large"
-                      style={{
-                        background: 'linear-gradient(135deg, #1890ff 0%, #40a9ff 100%)',
-                        color: 'white',
-                        border: 'none'
-                      }}
-                    >
-                      ⚙️ 更多格式选项 ▼
-                    </Button>
-                  </Dropdown>
-                  
-                  {/* 演示下载按钮 */}
-                  <Button 
-                    icon={<DownloadOutlined />}
-                    size="large"
-                    type="default"
-                    onClick={() => handleDemoDownload()}
-                    style={{
-                      background: 'linear-gradient(135deg, #ffa940 0%, #ffc53d 100%)',
-                      color: 'white',
-                      border: 'none'
-                    }}
-                  >
-                    🎯 演示下载功能
                   </Button>
                   
                   <Button 

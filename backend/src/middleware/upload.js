@@ -63,24 +63,17 @@ const handleUploadError = (error, req, res, next) => {
         filename: req.file?.originalname,
         size: req.file?.size 
       });
-      return res.status(400).json({ 
-        error: '文件大小不能超过 5MB',
-        code: 'FILE_TOO_LARGE'
-      });
+      return res.errorResponse.badRequest('文件大小不能超过 5MB', 'FILE_TOO_LARGE');
     }
     
     Logger.error('Multer错误', { error: error.message });
-    return res.status(400).json({ 
-      error: '文件上传失败',
-      code: 'UPLOAD_ERROR'
+    return res.errorResponse.badRequest('文件上传失败', 'UPLOAD_ERROR', {
+      multerCode: error.code
     });
   }
 
   if (error.message.includes('只支持')) {
-    return res.status(400).json({ 
-      error: error.message,
-      code: 'INVALID_FILE_TYPE'
-    });
+    return res.errorResponse.badRequest(error.message, 'INVALID_FILE_TYPE');
   }
 
   Logger.error('文件上传中间件错误', { error: error.message });

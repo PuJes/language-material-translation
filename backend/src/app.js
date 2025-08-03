@@ -9,6 +9,7 @@ const path = require('path');
 const config = require('./config');
 const websocketService = require('./services/websocketService');
 const uploadRoutes = require('./routes/uploadRoutes');
+const { ErrorResponse, extendResponse } = require('./utils/errorResponse');
 
 class App {
   constructor() {
@@ -46,6 +47,9 @@ class App {
 
     // JSON解析
     this.app.use(express.json());
+
+    // 扩展响应对象，添加统一错误响应方法
+    this.app.use(extendResponse);
 
     // 静态文件服务 - 服务前端构建文件
     const publicPath = path.join(__dirname, '..', 'public');
@@ -106,9 +110,7 @@ class App {
 
         res.json(health);
       } catch (error) {
-        res.status(503).json({
-          status: 'unhealthy',
-          timestamp: new Date().toISOString(),
+        return res.errorResponse.serviceUnavailable('健康检查失败', 'HEALTH_CHECK_FAILED', {
           error: error.message
         });
       }
@@ -122,17 +124,11 @@ class App {
           'You are a helpful assistant. Respond with "API key is working".',
           'Test message'
         );
-        res.json({ 
-          status: 'success', 
-          message: 'API key is valid',
+        return res.successResponse({ 
           response: testResult
-        });
+        }, 'API密钥验证成功');
       } catch (error) {
-        res.status(500).json({ 
-          status: 'error', 
-          message: error.message,
-          errorType: error.errorType || 'UNKNOWN'
-        });
+        return res.errorResponse.fromError(error);
       }
     });
 
@@ -144,10 +140,8 @@ class App {
       // 如果是API请求但没有匹配到路由，返回404
       if (req.path.startsWith('/api/')) {
         console.log('404 - API路径不存在', { path: req.originalUrl });
-        return res.status(404).json({
-          error: '路径不存在',
-          code: 'NOT_FOUND',
-          path: req.originalUrl
+        return res.errorResponse.notFound('API路径不存在', 'API_NOT_FOUND', { 
+          path: req.originalUrl 
         });
       }
       
@@ -169,11 +163,7 @@ class App {
         path: req.path 
       });
 
-      res.status(500).json({
-        error: '服务器内部错误',
-        code: 'INTERNAL_ERROR',
-        timestamp: new Date().toISOString()
-      });
+      return res.errorResponse.fromError(error);
     });
 
     // 未捕获的异常处理

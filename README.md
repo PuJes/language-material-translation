@@ -19,7 +19,7 @@
 
 ## 📋 项目概述
 
-**智能语言学习助手** 是一个基于AI的全栈语言学习平台，通过上传英语字幕文件（TXT/SRT），自动生成个性化的学习材料。系统利用DeepSeek AI技术提供智能句子解释、重点词汇分析和互动式学习体验。
+**智能语言学习助手 v2.0** 是一个经过全面重构的基于AI的全栈语言学习平台，通过上传英语字幕文件（TXT/SRT），自动生成个性化的学习材料。系统采用现代化MVC架构，完全移除WebSocket依赖，利用DeepSeek AI技术提供智能句子解释、重点词汇分析和互动式学习体验。
 
 ### ✨ 核心特性
 
@@ -27,30 +27,31 @@
 |---------|----------|
 | **🎯 智能分析** | • 支持TXT/SRT格式字幕文件<br>• AI生成详细语法和语义解释<br>• 根据英语水平个性化词汇解释<br>• 支持CET-4/6、IELTS、TOEFL四个级别 |
 | **📚 交互学习** | • 点击句子查看详细解释<br>• 重点词汇自动高亮显示<br>• 即时显示词汇用法和例句<br>• 生成可离线使用的HTML学习材料 |
-| **⚡ 性能优化** | • 批量AI处理技术，速度提升3-5倍<br>• 智能缓存减少重复API调用<br>• 完善的错误处理和重试机制<br>• 响应式设计，支持桌面和移动设备 |
+| **⚡ 性能优化** | • 批量AI处理技术，速度提升3-5倍<br>• HTTP轮询替代WebSocket，提升部署稳定性<br>• 智能缓存减少重复API调用<br>• 完善的错误处理和重试机制<br>• 响应式设计，支持桌面和移动设备 |
 
 ---
 
 ## 🛠️ 技术栈
 
 ### 前端技术栈
-- **框架**: React 19.1 + Vite 7.0
-- **UI库**: Ant Design 5.26
+- **框架**: React 19.1.0 + Vite 7.0.4
+- **UI库**: Ant Design 5.26.5
 - **状态管理**: React Hooks
 - **样式**: CSS3 + 渐变动画
-- **构建工具**: Vite
-- **HTTP客户端**: Axios
-- **WebSocket**: 原生WebSocket API
+- **构建工具**: Vite 7.0.4
+- **HTTP客户端**: Axios 1.10.0
+- **通信方式**: HTTP轮询（已移除WebSocket）
 
-### 后端技术栈
+### 后端技术栈 (v2.0重构版)
 - **运行时**: Node.js 18+
-- **框架**: Express.js 4.18
-- **文件处理**: Multer 1.4
+- **框架**: Express.js 4.18.2
+- **架构模式**: MVC + 适配器模式
+- **文件处理**: Multer 1.4.5-lts.1
 - **AI集成**: DeepSeek Chat API
-- **实时通信**: WebSocket (ws 8.14)
-- **环境管理**: dotenv 16.3
-- **日志系统**: Winston 3.11
-- **云服务**: CloudBase SDK 2.8
+- **通信方式**: HTTP + 进度轮询
+- **环境管理**: dotenv 16.3.1
+- **日志系统**: Winston 3.11.0
+- **云服务**: CloudBase SDK 2.8.1
 
 ### 部署与运维
 - **容器化**: Docker多阶段构建
@@ -75,20 +76,22 @@
 │   ├── 📄 package.json            # 前端依赖
 │   ├── 📄 vite.config.js          # Vite配置
 │   └── 📄 .gitignore              # Git忽略规则
-├── 📁 backend/                    # Node.js后端服务 (重构版本)
+├── 📁 backend/                    # Node.js后端服务 (v2.0重构版)
 │   ├── 📁 src/                    # 源代码目录
-│   │   ├── 📄 index.js            # 应用入口
+│   │   ├── 📄 index.js            # 应用启动入口
 │   │   ├── 📄 app.js              # Express应用配置
-│   │   ├── 📁 config/             # 配置文件
-│   │   ├── 📁 controllers/        # 控制器层
-│   │   ├── 📁 services/           # 业务逻辑层
-│   │   ├── 📁 routes/             # 路由定义
-│   │   ├── 📁 middleware/         # 中间件
-│   │   ├── 📁 utils/              # 工具函数
-│   │   └── 📁 adapters/           # 外部服务适配器
-│   ├── 📄 package.json            # 后端依赖
+│   │   ├── 📁 config/             # 统一配置管理
+│   │   ├── 📁 controllers/        # 控制器层 (MVC)
+│   │   ├── 📁 services/           # 业务逻辑层 (AI、文件处理、进度追踪)
+│   │   ├── 📁 routes/             # RESTful API路由
+│   │   ├── 📁 middleware/         # 中间件层
+│   │   ├── 📁 utils/              # 工具函数 (日志、错误处理、网络诊断)
+│   │   └── 📁 adapters/           # 存储适配器 (本地/云存储)
+│   ├── 📁 logs/                   # Winston日志目录
+│   ├── 📁 uploads/                # 临时文件目录
+│   ├── 📄 package.json            # 后端依赖 (v2.0.0)
+│   ├── 📄 README.md               # 后端文档
 │   └── 📄 .env                    # 环境变量配置
-├── 📁 language-learning-functions/ # CloudBase云函数
 ├── 📁 scripts/                    # 部署和构建脚本
 ├── 📄 package.json                # 根项目配置
 ├── 📄 Dockerfile                  # Docker构建文件
@@ -211,7 +214,7 @@ curl -X POST http://localhost:3001/api/upload \
 | **TOEFL** | 托福考试 | 高级词汇+学术英语 |
 
 #### 4. 获取学习材料
-- **实时进度**: WebSocket推送处理进度
+- **进度追踪**: HTTP轮询获取实时进度
 - **结果格式**: JSON数据 + 可下载HTML
 - **处理时间**: 30-60秒（短文本）至2-8分钟（长文本）
 
@@ -235,13 +238,12 @@ Content-Type: multipart/form-data
 # 参数
 - file: 字幕文件 (.txt/.srt)
 - englishLevel: 英语水平 (CET-4/CET-6/IELTS/TOEFL)
-- clientId: 客户端标识符
 
 # 响应
 {
   "success": true,
-  "message": "文件上传成功",
-  "clientId": "client_id_here"
+  "message": "文件上传成功，开始处理",
+  "processId": "process_id_here"
 }
 ```
 
@@ -260,15 +262,25 @@ GET /api/health
 }
 ```
 
-#### WebSocket连接
-```javascript
-// 连接WebSocket获取实时进度
-const ws = new WebSocket('ws://localhost:3001');
+#### 进度查询接口
+```bash
+GET /api/progress/{processId}
 
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log('处理进度:', data);
-};
+# 响应
+{
+  "success": true,
+  "progress": 75,
+  "stage": "AI分析中...",
+  "status": "processing",
+  "estimatedTimeRemaining": 30000,
+  "logs": [
+    {
+      "level": "info",
+      "message": "[75%] AI分析中...",
+      "timestamp": 1234567890
+    }
+  ]
+}
 ```
 
 ## 🐳 Docker部署
@@ -354,10 +366,10 @@ cd backend && cat .env | grep DEEPSEEK_API_KEY
 - 确认文件大小（<5MB）
 - 验证文件编码（UTF-8）
 
-#### 4. WebSocket连接失败
-- 检查防火墙设置
-- 确认端口开放
-- 查看浏览器控制台
+#### 4. HTTP连接失败
+- 检查API端点配置
+- 确认CORS设置
+- 验证网络连接
 
 ### 日志查看
 ```bash
@@ -367,8 +379,8 @@ tail -f backend/logs/app.log
 # Docker日志
 docker logs -f language-learning
 
-# 实时查看处理进度
-# 打开浏览器开发者工具，查看WebSocket连接和消息
+# 查看处理进度
+# 使用GET /api/progress/{processId}接口或浏览器开发者工具查看HTTP请求
 ```
 
 ### 性能优化建议
@@ -381,11 +393,13 @@ docker logs -f language-learning
 
 ## 🛠️ 开发指南
 
-### 项目架构
-- **前端**: React SPA，使用Vite构建，Ant Design UI组件
-- **后端**: Express.js RESTful API + WebSocket实时通信
+### 项目架构 (v2.0)
+- **前端**: React 19 SPA，Vite 7构建，Ant Design UI组件
+- **后端**: Express.js MVC架构 + HTTP轮询通信
 - **AI服务**: DeepSeek Chat API集成，支持大文件分块处理
-- **存储**: 本地文件系统 + CloudBase云存储支持
+- **存储**: 适配器模式支持本地文件系统 + CloudBase云存储
+- **日志**: Winston结构化日志系统
+- **进度追踪**: 实时进度服务 + HTTP轮询
 
 ### 开发环境设置
 ```bash
@@ -403,13 +417,13 @@ cd backend && npm run clean
 ### 代码结构说明
 ```bash
 backend/src/
-├── config/         # 配置管理 (API密钥、超时设置等)
-├── controllers/    # 请求处理器 (文件上传、健康检查)
-├── services/       # 业务逻辑 (AI处理、文件解析)
-├── routes/         # 路由定义 (API端点)
-├── middleware/     # 中间件 (CORS、错误处理、日志)
-├── utils/          # 工具函数 (文件处理、格式转换)
-└── adapters/       # 外部服务适配 (DeepSeek API)
+├── config/         # 统一配置管理 (API密钥、超时设置、存储配置)
+├── controllers/    # 控制器层 (文件上传、进度查询、健康检查)
+├── services/       # 服务层 (AI处理、文件解析、进度追踪)
+├── routes/         # 路由层 (RESTful API端点)
+├── middleware/     # 中间件层 (文件上传、CORS、错误处理)
+├── utils/          # 工具层 (Winston日志、错误响应、网络诊断)
+└── adapters/       # 适配器层 (存储适配器工厂、本地/云存储)
 ```
 
 ### 贡献指南

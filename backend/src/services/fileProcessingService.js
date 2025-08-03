@@ -9,6 +9,7 @@ const Logger = require('../utils/logger');
 const config = require('../config');
 const aiService = require('./aiService');
 const { StorageAdapterFactory } = require('../adapters');
+const progressService = require('./progressService');
 
 class FileProcessingService {
   constructor() {
@@ -28,6 +29,10 @@ class FileProcessingService {
     const startTime = Date.now();
     
     try {
+      // 初始化进度追踪
+      progressService.initProgress(clientId, file.originalname, englishLevel);
+      progressService.updateProgress(clientId, 5, '开始处理文件...');
+
       Logger.info('开始处理文件', { 
         filename: file.originalname, 
         englishLevel, 
@@ -35,34 +40,34 @@ class FileProcessingService {
       });
 
       // 验证文件
+      progressService.updateProgress(clientId, 10, '验证文件格式...');
       this.validateFile(file);
-
-      // 日志进度（替代websocket）
-      Logger.info('开始上传和解析文件...', { clientId });
+      progressService.addLog(clientId, 'success', `文件验证通过: ${file.originalname}`);
 
       // 读取文件内容 - 支持存储适配器
+      progressService.updateProgress(clientId, 15, '读取文件内容...');
       let content;
       const ext = path.extname(file.originalname).toLowerCase();
       
       try {
         // 优先使用本地文件系统（当前multer保存的文件）
         content = fs.readFileSync(file.path, 'utf-8');
+        progressService.addLog(clientId, 'info', `文件读取成功，大小: ${content.length} 字符`);
       } catch (error) {
+        progressService.addLog(clientId, 'warn', '直接读取文件失败，尝试使用存储适配器');
         Logger.warn('直接读取文件失败，尝试使用存储适配器', { error: error.message });
         // 如果直接读取失败，可以在这里集成云存储读取逻辑
         throw error;
       }
 
-      // 日志文件解析进度
-      Logger.info('正在解析文件内容...', { clientId });
-
       // 解析文件并进行AI分句
+      progressService.updateProgress(clientId, 25, '解析文件内容...');
       let sentences = [];
       if (ext === '.srt') {
-        Logger.info('正在处理字幕文件...', { clientId });
+        progressService.addLog(clientId, 'info', '检测到SRT字幕文件，开始解析...');
         sentences = await this.parseSRT(content, clientId);
       } else if (ext === '.txt') {
-        Logger.info('正在处理文本文件...', { clientId });
+        progressService.addLog(clientId, 'info', '检测到TXT文本文件，开始解析...');
         sentences = await this.parseTXT(content, clientId);
       }
 
@@ -70,33 +75,34 @@ class FileProcessingService {
         throw new Error('文件内容为空或格式不正确');
       }
 
-      Logger.info('文件解析和AI分句完成', { sentenceCount: sentences.length });
-      Logger.info('智能分句完成，开始智能分段和标题生成...', { clientId });
+      progressService.updateProgress(clientId, 40, `AI分句完成，共${sentences.length}个句子`);
+      progressService.addLog(clientId, 'success', `文件解析完成，提取到 ${sentences.length} 个句子`);
 
       // 智能分段并生成段落标题
-      Logger.info('正在智能分段和生成标题...', { clientId });
+      progressService.updateProgress(clientId, 50, '智能分段和生成标题...');
+      progressService.addLog(clientId, 'info', '开始AI智能分段和标题生成...');
       const paragraphs = await aiService.generateParagraphsWithTitles(sentences, englishLevel, clientId);
-      Logger.info('智能分段和标题生成完成', { clientId });
+      progressService.updateProgress(clientId, 65, `智能分段完成，共${paragraphs.length}个段落`);
+      progressService.addLog(clientId, 'success', `智能分段完成，生成 ${paragraphs.length} 个段落`);
 
       // 生成句子解释
+      progressService.updateProgress(clientId, 75, '生成句子解释...');
       const allSentences = paragraphs.flatMap(p => p.sentences);
+      progressService.addLog(clientId, 'info', `开始为 ${allSentences.length} 个句子生成解释...`);
       await aiService.generateSentenceExplanations(allSentences, englishLevel, clientId);
+      progressService.addLog(clientId, 'success', '句子解释生成完成');
 
       // 生成词汇分析
-      Logger.info('正在分析重点词汇...', { clientId });
+      progressService.updateProgress(clientId, 85, '分析重点词汇...');
+      progressService.addLog(clientId, 'info', '开始分析重点词汇和短语...');
       const allText = sentences.map(s => s.text).join(' ');
-      const vocabularyAnalysis = await aiService.generateVocabularyAnalysis(allText, englishLevel);
-      Logger.info('重点词汇分析完成...', { clientId });
+      const vocabularyAnalysis = await aiService.generateVocabularyAnalysis(allText, englishLevel, clientId);
+      progressService.updateProgress(clientId, 95, `词汇分析完成，识别${vocabularyAnalysis.length}个重点词汇`);
+      progressService.addLog(clientId, 'success', `词汇分析完成，识别 ${vocabularyAnalysis.length} 个重点词汇`);
 
       // 计算处理时间
       const processingTime = Date.now() - startTime;
-      Logger.success('文件处理完成', { 
-        processingTime, 
-        sentenceCount: sentences.length,
-        paragraphCount: paragraphs.length,
-        vocabularyCount: vocabularyAnalysis.length 
-      });
-
+      
       // 清理临时文件
       this.cleanupFile(file.path);
 
@@ -110,12 +116,22 @@ class FileProcessingService {
         processingTime: processingTime
       };
 
-      // 处理完成日志
-      Logger.info('处理完成，返回结果...', { clientId });
+      // 标记处理完成
+      progressService.completeProgress(clientId, result);
+      
+      Logger.success('文件处理完成', { 
+        processingTime, 
+        sentenceCount: sentences.length,
+        paragraphCount: paragraphs.length,
+        vocabularyCount: vocabularyAnalysis.length 
+      });
 
       return result;
 
     } catch (error) {
+      // 标记处理错误
+      progressService.errorProgress(clientId, error);
+      
       Logger.error('文件处理失败', { 
         error: error.message, 
         filename: file?.originalname,

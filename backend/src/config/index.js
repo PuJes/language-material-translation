@@ -54,7 +54,7 @@ const config = {
 
   // 文件上传配置
   upload: {
-    maxFileSize: 5 * 1024 * 1024, // 5MB
+    maxFileSize: 150 * 1024, // 150KB
     allowedTypes: ['.txt', '.srt'],
     uploadDir: './uploads'
   },
@@ -85,10 +85,10 @@ const config = {
     // 新增：动态超时配置
     dynamicTimeout: {
       enabled: true, // 启用动态超时
-      baseTimeout: 60000, // 基础超时60秒
+      baseTimeout: 300000, // 基础超时5分钟
       perCharacterTimeout: 0.1, // 每字符增加0.1毫秒
-      maxTimeout: 300000, // 最大超时5分钟
-      minTimeout: 30000 // 最小超时30秒
+      maxTimeout: 600000, // 最大超时10分钟
+      minTimeout: 120000 // 最小超时2分钟
     },
     // 新增：智能重试配置
     smartRetry: {

@@ -63,7 +63,7 @@ const handleUploadError = (error, req, res, next) => {
         filename: req.file?.originalname,
         size: req.file?.size 
       });
-      return res.errorResponse.badRequest('文件大小不能超过 5MB', 'FILE_TOO_LARGE');
+      return res.errorResponse.badRequest('文件大小不能超过 150KB', 'FILE_TOO_LARGE');
     }
     
     Logger.error('Multer错误', { error: error.message });

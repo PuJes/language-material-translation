@@ -31,6 +31,10 @@ function App() {
   // 进度相关状态
   const [processingStage, setProcessingStage] = useState('');
   const [processingProgress, setProcessingProgress] = useState(0);
+  const [realTimeProgress, setRealTimeProgress] = useState(false); // 是否使用真实进度
+  const [processId, setProcessId] = useState(null); // 当前处理ID
+  const [processingLogs, setProcessingLogs] = useState([]); // 处理日志
+  const [estimatedTimeRemaining, setEstimatedTimeRemaining] = useState(null); // 预估剩余时间
   
   // 错误状态管理
   const [errorState, setErrorState] = useState(null); // 错误状态信息
@@ -58,6 +62,192 @@ function App() {
     }
   };
 
+  // 轮询进度的函数
+  const pollProgress = async (processId) => {
+    let pollInterval = null;
+    let pollCount = 0;
+    let consecutiveFailures = 0; // 连续失败次数
+    const maxPollCount = 90; // 最多轮询30分钟 (90 * 20秒)
+    const maxConsecutiveFailures = 5; // 最多连续失败5次后提示用户
+
+    const startPolling = () => {
+      pollInterval = setInterval(async () => {
+        pollCount++;
+        
+        // 防止无限轮询
+        if (pollCount > maxPollCount) {
+          console.warn('[进度轮询] 达到最大轮询次数，停止轮询');
+          clearInterval(pollInterval);
+          setRealTimeProgress(false);
+          
+          // 提示用户超时
+          message.warning({
+            content: '进度轮询超时，但处理可能仍在继续。请稍后刷新页面查看结果。',
+            duration: 5
+          });
+          return;
+        }
+
+        try {
+          console.log(`[进度轮询] 第${pollCount}次轮询进度: ${processId}`);
+          
+          // 额外安全检查：如果结果已经存在，停止轮询
+          if (result) {
+            console.log('[进度轮询] 结果已存在，停止轮询');
+            clearInterval(pollInterval);
+            setRealTimeProgress(false);
+            return;
+          }
+          
+          const response = await axios.get(getApiUrl(`/api/progress/${processId}`), {
+            timeout: 8000 // 8秒超时
+          });
+
+          // 轮询成功，重置失败计数
+          consecutiveFailures = 0;
+
+          if (response.data && response.data.success && response.data.data) {
+            const progressData = response.data.data;
+            
+            console.log('[进度轮询] 收到进度数据:', progressData);
+
+            // 更新进度状态
+            setProcessingProgress(progressData.progress || 0);
+            setProcessingStage(progressData.stage || '处理中...');
+            setEstimatedTimeRemaining(progressData.estimatedTimeRemaining);
+            
+            // 更新日志（只显示最近的10条）
+            if (progressData.logs && Array.isArray(progressData.logs)) {
+              setProcessingLogs(progressData.logs.slice(-10));
+            }
+
+            // 检查是否完成
+            if (progressData.status === 'completed') {
+              console.log('[进度轮询] 处理完成，停止轮询');
+              clearInterval(pollInterval);
+              setRealTimeProgress(false);
+              
+              // 如果有结果数据，直接使用
+              if (progressData.result) {
+                setResult(progressData.result);
+                setProcessingTime(progressData.result.processingTime);
+                setProcessingProgress(100);
+                setProcessingStage('✅ 处理完成！');
+                setLoading(false);
+                
+                message.success({
+                  content: `✅ 分析完成！用时 ${(progressData.result.processingTime / 1000).toFixed(1)} 秒`,
+                  duration: 3
+                });
+                
+                // 确保所有相关状态都被正确设置，防止继续轮询
+                console.log('[进度轮询] 结果已设置，轮询完全停止');
+              }
+            } else if (progressData.status === 'error') {
+              console.error('[进度轮询] 处理出错，停止轮询');
+              clearInterval(pollInterval);
+              setRealTimeProgress(false);
+              
+              // 构建错误状态
+              const errorStateData = {
+                type: 'SERVER_ERROR',
+                message: progressData.error?.message || '文件处理失败',
+                code: 'PROCESSING_ERROR',
+                statusCode: null,
+                timestamp: new Date().toISOString(),
+                retryCount: 0,
+                networkStatus: 'connected',
+                suggestions: [
+                  '检查文件格式是否正确',
+                  '尝试使用更小的文件',
+                  '稍后重试',
+                  '联系技术支持'
+                ],
+                originalError: progressData.error?.message
+              };
+              
+              setErrorState(errorStateData);
+              setLoading(false);
+              setProcessingStage('');
+              setProcessingProgress(0);
+              
+              message.error({
+                content: `处理失败：${errorStateData.message}`,
+                duration: 3
+              });
+            }
+
+          } else {
+            console.warn('[进度轮询] 无效的响应数据:', response.data);
+            consecutiveFailures++;
+          }
+
+        } catch (error) {
+          consecutiveFailures++;
+          console.error(`[进度轮询] 轮询失败 (连续失败${consecutiveFailures}次):`, error);
+          
+          // 如果是404错误，说明进度不存在，停止轮询
+          if (error.response?.status === 404) {
+            console.warn('[进度轮询] 进度不存在，停止轮询');
+            clearInterval(pollInterval);
+            setRealTimeProgress(false);
+            
+            message.warning({
+              content: '无法找到处理进度信息，可能处理已完成。请刷新页面查看结果。',
+              duration: 4
+            });
+            return;
+          }
+
+          // 连续失败次数过多时提示用户
+          if (consecutiveFailures >= maxConsecutiveFailures) {
+            console.warn('[进度轮询] 连续失败次数过多，切换到降级模式');
+            
+            // 更新UI显示网络问题
+            setProcessingStage('网络连接不稳定，正在重试...');
+            
+            message.warning({
+              content: `网络连接不稳定，已连续失败${consecutiveFailures}次。进度轮询将继续，但可能显示延迟。`,
+              duration: 4
+            });
+
+            // 如果连续失败超过10次，停止轮询
+            if (consecutiveFailures >= 10) {
+              console.error('[进度轮询] 连续失败次数过多，停止轮询');
+              clearInterval(pollInterval);
+              setRealTimeProgress(false);
+              
+              message.error({
+                content: '网络连接严重问题，已停止进度轮询。处理可能仍在继续，请稍后刷新页面查看结果。',
+                duration: 6
+              });
+              
+              // 切换回模拟进度模式
+              setProcessingStage('网络连接中断，请稍后刷新页面...');
+              return;
+            }
+          }
+          
+          // 网络错误不停止轮询，继续尝试（但会记录失败次数）
+        }
+      }, 20000); // 每20秒轮询一次
+    };
+
+    // 清理函数
+    const cleanup = () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    };
+
+    // 开始轮询
+    startPolling();
+
+    // 返回清理函数
+    return cleanup;
+  };
+
   // 构建错误状态对象
   const buildErrorState = async (error) => {
     const networkStatus = await checkNetworkConnectivity();
@@ -76,7 +266,7 @@ function App() {
       
       if (statusCode === 413) {
         errorType = 'FILE_ERROR';
-        errorMessage = '文件过大，请选择小于5MB的文件';
+        errorMessage = '文件过大，请选择小于150KB的文件';
         suggestions = [
           '选择更小的文件（建议小于1MB）',
           '将长文本分割成多个较短的文件',
@@ -227,9 +417,9 @@ function App() {
         return false;
       }
       
-      const isLt5M = file.size / 1024 / 1024 < 5;
-      if (!isLt5M) {
-        message.error('文件大小不能超过 5MB！');
+      const isLt150K = file.size / 1024 < 150;
+      if (!isLt150K) {
+        message.error('文件大小不能超过 150KB！');
         return false;
       }
       
@@ -275,31 +465,49 @@ function App() {
     setProcessingTime(null);
     setProcessingStage('正在准备上传...');
     setProcessingProgress(0);
+    setRealTimeProgress(false);
+    setProcessId(null);
+    setProcessingLogs([]);
+    setEstimatedTimeRemaining(null);
+    setErrorState(null);
+    
     console.log('State before HTTP request:', { loading, result, processingStage, processingProgress });
     
-    // 显示模拟进度
+    // 生成处理ID
+    const currentProcessId = `web_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    setProcessId(currentProcessId);
+    
+    // 初始显示模拟进度，等待真实进度开始
     let progressValue = 0;
-    const progressInterval = setInterval(() => {
-      progressValue += Math.random() * 8 + 2; // 每次增加2-10%
-      if (progressValue >= 85) {
-        progressValue = 85; // 停在85%等待实际结果
-      }
-      setProcessingProgress(progressValue);
-      
-      // 更新处理阶段信息
-      if (progressValue < 30) {
-        setProcessingStage('正在分析文件结构...');
-      } else if (progressValue < 60) {
-        setProcessingStage('正在处理文本内容...');
-      } else if (progressValue < 85) {
-        setProcessingStage('正在生成学习材料...');
-      }
-    }, 1500);
+    let progressInterval = null;
+    let progressPollingCleanup = null;
+    
+    const startMockProgress = () => {
+      progressInterval = setInterval(() => {
+        if (!realTimeProgress) { // 只有在没有真实进度时才使用模拟进度
+          progressValue += Math.random() * 3 + 1; // 缓慢增加1-4%
+          if (progressValue >= 15) {
+            progressValue = 15; // 模拟进度停在15%，等待真实进度
+          }
+          setProcessingProgress(progressValue);
+          
+          // 更新处理阶段信息
+          if (progressValue < 5) {
+            setProcessingStage('正在上传文件...');
+          } else if (progressValue < 10) {
+            setProcessingStage('正在初始化处理...');
+          } else {
+            setProcessingStage('等待服务器响应...');
+          }
+        }
+      }, 2000);
+    };
     
     // 清理定时器的函数
     const clearProgressInterval = () => {
       if (progressInterval) {
         clearInterval(progressInterval);
+        progressInterval = null;
       }
     };
     
@@ -307,24 +515,78 @@ function App() {
       const formData = new FormData();
       formData.append('file', fileList[0]);
       formData.append('englishLevel', englishLevel);
+      formData.append('clientId', currentProcessId); // 添加processId
 
-      console.log('开始上传文件并处理...');
+      console.log('开始上传文件并处理...', { processId: currentProcessId });
+      
+      // 开始模拟进度
+      startMockProgress();
       
       const apiUrl = getApiUrl('/api/upload');
       console.log('[HTTP] Uploading to:', apiUrl);
       
-      // 直接进行API调用（不使用重试机制）
-      const response = await axios.post(apiUrl, formData, {
+      // 发起处理请求（异步处理）
+      const uploadPromise = axios.post(apiUrl, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
         timeout: API_CONFIG.timeout,
       });
+
+      // 延迟3秒后开始轮询真实进度
+      setTimeout(() => {
+        console.log('[进度轮询] 开始轮询真实进度');
+        setRealTimeProgress(true);
+        clearProgressInterval(); // 停止模拟进度
+        
+        // 开始轮询真实进度
+        progressPollingCleanup = pollProgress(currentProcessId);
+      }, 3000);
+
+      // 等待上传请求完成
+      const response = await uploadPromise;
       
+      console.log('[HTTP] 上传请求完成');
+      
+      // 如果还在使用轮询模式，检查是否已经有结果
+      if (realTimeProgress && progressPollingCleanup) {
+        console.log('[HTTP] 上传完成，检查是否需要继续轮询');
+        
+        // 如果HTTP响应已经包含完整结果，立即停止轮询
+        const responseResult = response.data.result || response.data.data?.result;
+        if (responseResult) {
+          console.log('[HTTP] 响应包含完整结果，立即停止轮询');
+          progressPollingCleanup(); // 停止轮询
+          setRealTimeProgress(false);
+          
+          // 处理结果
+          const responseProcessingTime = response.data.processingTime || response.data.data?.processingTime;
+          setResult(responseResult);
+          setProcessingTime(responseProcessingTime);
+          setProcessingProgress(100);
+          setProcessingStage('✅ 处理完成！');
+          setErrorState(null);
+          
+          setTimeout(() => {
+            setLoading(false);
+            setProcessingStage('');
+            message.success({
+              content: `✅ 分析完成！用时 ${(responseProcessingTime / 1000).toFixed(1)} 秒`,
+              duration: 3
+            });
+          }, 500);
+          return;
+        } else {
+          console.log('[HTTP] 响应不包含结果，轮询将继续直到处理完成');
+          // 轮询会自动处理完成状态，这里不需要手动处理结果
+          return;
+        }
+      }
+      
+      // 如果没有启用轮询（可能是快速处理），直接处理响应
       clearProgressInterval();
       
       // HTTP 响应包含完整结果
-      // 兼容两种响应格式：直接格式和标准包装格式
       const responseResult = response.data.result || response.data.data?.result;
       const responseProcessingTime = response.data.processingTime || response.data.data?.processingTime;
       
@@ -333,7 +595,7 @@ function App() {
         setProcessingTime(responseProcessingTime);
         setProcessingProgress(100);
         setProcessingStage('✅ 处理完成！');
-        setErrorState(null); // 清除任何之前的错误状态
+        setErrorState(null);
         
         setTimeout(() => {
           setLoading(false);
@@ -349,7 +611,13 @@ function App() {
       }
 
     } catch (error) {
+      // 清理所有定时器和轮询
       clearProgressInterval();
+      if (progressPollingCleanup) {
+        progressPollingCleanup();
+      }
+      setRealTimeProgress(false);
+      
       console.error('❌ [HTTP请求] 处理失败:', error);
       
       // 构建详细的错误状态
@@ -1228,7 +1496,7 @@ function App() {
                       点击或拖拽文件到此处上传
                     </p>
                     <p className="ant-upload-hint" style={{ fontSize: '14px', color: '#718096' }}>
-                      支持 .txt 和 .srt 格式的英语字幕文件，最大 5MB
+                      支持 .txt 和 .srt 格式的英语字幕文件，最大 150KB
                     </p>
                   </Dragger>
                 </Col>
@@ -1301,11 +1569,23 @@ function App() {
               </Title>
               
               {/* 实时进度显示 */}
-              <div style={{ width: '100%', maxWidth: '500px', margin: '20px auto' }}>
+              <div style={{ width: '100%', maxWidth: '600px', margin: '20px auto' }}>
                 <div style={{ marginBottom: '16px', textAlign: 'center' }}>
                   <Text style={{ fontSize: '16px', fontWeight: '600', color: '#667eea' }}>
                     {processingStage}
+                    {realTimeProgress && (
+                      <span style={{ fontSize: '12px', color: '#52c41a', marginLeft: '8px' }}>
+                        (实时进度)
+                      </span>
+                    )}
                   </Text>
+                  {estimatedTimeRemaining && (
+                    <div style={{ marginTop: '4px' }}>
+                      <Text style={{ fontSize: '12px', color: '#718096' }}>
+                        预计剩余时间：{(estimatedTimeRemaining / 1000).toFixed(0)} 秒
+                      </Text>
+                    </div>
+                  )}
                 </div>
                 
                 <Progress 
@@ -1334,34 +1614,97 @@ function App() {
                 <div style={{ marginTop: '12px', textAlign: 'center' }}>
                   <Text style={{ fontSize: '13px', color: processingProgress === 100 ? '#52c41a' : '#718096' }}>
                     {processingProgress === 100 && '🎉 处理完成！正在为您展示结果...'}
-                    {processingProgress < 25 && processingProgress > 0 && '🚀 文件上传与解析阶段'}
-                    {processingProgress >= 25 && processingProgress < 50 && '⚡ AI分析优化中'}
-                    {processingProgress >= 50 && processingProgress < 75 && '📖 智能解释生成中'}
-                    {processingProgress >= 75 && processingProgress < 90 && '🎯 词汇分析与优化'}
-                    {processingProgress >= 90 && processingProgress < 100 && '✨ 最后整理与优化'}
+                    {!realTimeProgress && processingProgress < 25 && processingProgress > 0 && '🚀 文件上传与解析阶段'}
+                    {!realTimeProgress && processingProgress >= 25 && processingProgress < 50 && '⚡ AI分析优化中'}
+                    {!realTimeProgress && processingProgress >= 50 && processingProgress < 75 && '📖 智能解释生成中'}
+                    {!realTimeProgress && processingProgress >= 75 && processingProgress < 90 && '🎯 词汇分析与优化'}
+                    {!realTimeProgress && processingProgress >= 90 && processingProgress < 100 && '✨ 最后整理与优化'}
+                    {realTimeProgress && processId && (
+                      <span>处理ID: {processId}</span>
+                    )}
                   </Text>
                 </div>
               </div>
 
-              {/* 超时预警 */}
-              {/* 移除超时预警相关代码 */}
-
+              {/* 实时控制台日志显示 */}
+              {realTimeProgress && processingLogs.length > 0 && (
+                <div style={{ 
+                  maxWidth: '700px', 
+                  margin: '20px auto',
+                  background: '#f6f8fa',
+                  borderRadius: '8px',
+                  border: '1px solid #d1d9e0'
+                }}>
+                  <div style={{ 
+                    padding: '12px 16px',
+                    borderBottom: '1px solid #d1d9e0',
+                    background: '#f1f3f4',
+                    borderRadius: '8px 8px 0 0'
+                  }}>
+                    <Text style={{ fontSize: '14px', fontWeight: '600', color: '#24292e' }}>
+                      📋 实时处理日志 ({processingLogs.length} 条)
+                    </Text>
+                  </div>
+                  <div style={{ 
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    padding: '8px'
+                  }}>
+                    {processingLogs.map((log, index) => (
+                      <div key={index} style={{ 
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '4px 8px',
+                        fontSize: '12px',
+                        fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                        borderRadius: '4px',
+                        marginBottom: '2px',
+                        background: log.level === 'error' ? '#fff5f5' : 
+                                   log.level === 'warn' ? '#fffbf0' :
+                                   log.level === 'success' ? '#f6ffed' : 'transparent'
+                      }}>
+                        <span style={{ 
+                          color: '#718096',
+                          minWidth: '60px',
+                          fontSize: '10px'
+                        }}>
+                          {log.formattedTime}
+                        </span>
+                        <span style={{ 
+                          marginLeft: '8px',
+                          color: log.level === 'error' ? '#f5222d' :
+                                 log.level === 'warn' ? '#fa8c16' :
+                                 log.level === 'success' ? '#52c41a' : '#262626'
+                        }}>
+                          {log.level === 'error' && '❌ '}
+                          {log.level === 'warn' && '⚠️ '}
+                          {log.level === 'success' && '✅ '}
+                          {log.level === 'info' && '📋 '}
+                          {log.message}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* 处理提示 */}
-              <div className="loading-steps">
-                <div className="loading-step">
-                  <span className="loading-step-icon">🤖</span>
-                  AI智能分析文本结构
+              {!realTimeProgress && (
+                <div className="loading-steps">
+                  <div className="loading-step">
+                    <span className="loading-step-icon">🤖</span>
+                    AI智能分析文本结构
+                  </div>
+                  <div className="loading-step">
+                    <span className="loading-step-icon">📚</span>
+                    生成句子解释和词汇分析
+                  </div>
+                  <div className="loading-step">
+                    <span className="loading-step-icon">🎯</span>
+                    优化学习材料格式
+                  </div>
                 </div>
-                <div className="loading-step">
-                  <span className="loading-step-icon">📚</span>
-                  生成句子解释和词汇分析
-                </div>
-                <div className="loading-step">
-                  <span className="loading-step-icon">🎯</span>
-                  优化学习材料格式
-                </div>
-              </div>
+              )}
               
               <div style={{ 
                 background: 'linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%)', 
@@ -1371,7 +1714,11 @@ function App() {
                 border: '1px solid #1890ff'
               }}>
                 <Text style={{ color: '#096dd9', fontSize: '13px', textAlign: 'center', display: 'block' }}>
-                  💡 <strong>小贴士：</strong>处理时间约30-60秒，请耐心等待。文件越大处理时间越长，可能部分文件超过数分钟，请保持耐心，建议使用小于1MB的文件以获得最佳体验，可以适当将文件分成几部分的进行上传。
+                  💡 <strong>小贴士：</strong>
+                  {realTimeProgress 
+                    ? '现在显示的是服务器实时处理进度和日志，每20秒自动更新一次。'
+                    : '处理时间约30-60秒，请耐心等待。文件越大处理时间越长，建议使用小于1MB的文件以获得最佳体验。'
+                  }
                 </Text>
               </div>
             </div>

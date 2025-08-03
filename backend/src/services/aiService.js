@@ -7,6 +7,7 @@ const axios = require('axios');
 const Logger = require('../utils/logger');
 const config = require('../config');
 const networkDiagnostic = require('../utils/networkDiagnostic');
+const progressService = require('./progressService');
 
 // 错误分类和恢复策略配置
 const ERROR_HANDLING_CONFIG = {
@@ -432,6 +433,11 @@ class AIService {
         threshold: largeFileThreshold 
       });
       
+      // 添加进度日志
+      if (clientId && progressService.hasProgress(clientId)) {
+        progressService.addLog(clientId, 'info', `检测到大文件(${(text.length/1000).toFixed(1)}KB)，启用分块处理`);
+      }
+      
       try {
         return await this.processLargeFile(text, 'split', null, clientId);
       } catch (error) {
@@ -439,6 +445,12 @@ class AIService {
           error: error.message,
           textLength: text.length 
         });
+        
+        // 添加进度日志
+        if (clientId && progressService.hasProgress(clientId)) {
+          progressService.addLog(clientId, 'warn', `大文件处理失败，回退到传统方法: ${error.message}`);
+        }
+        
         // 如果大文件处理失败，回退到传统方法
       }
     }
@@ -451,12 +463,22 @@ class AIService {
         maxLength: maxTextLength 
       });
       
+      // 添加进度日志
+      if (clientId && progressService.hasProgress(clientId)) {
+        progressService.addLog(clientId, 'info', `文本较长(${(text.length/1000).toFixed(1)}KB)，进行智能分割处理`);
+      }
+      
       // 分割文本为多个部分
       const parts = this.unifiedTextSplitter(text, {
         maxLength: maxTextLength,
         strategy: 'sentence'
       });
       Logger.info('文本预分割完成', { partsCount: parts.length });
+      
+      // 添加进度日志
+      if (clientId && progressService.hasProgress(clientId)) {
+        progressService.addLog(clientId, 'info', `文本分割为 ${parts.length} 个部分，开始逐个处理`);
+      }
       
       // 处理每个部分
       const allSentences = [];
@@ -465,8 +487,18 @@ class AIService {
           partLength: parts[i].length 
         });
         
+        // 添加进度日志
+        if (clientId && progressService.hasProgress(clientId)) {
+          progressService.addLog(clientId, 'info', `正在处理第 ${i + 1}/${parts.length} 部分文本...`);
+        }
+        
         const partSentences = await this.splitSentences(parts[i], clientId, splitCount + 1);
         allSentences.push(...partSentences);
+        
+        // 添加进度日志
+        if (clientId && progressService.hasProgress(clientId)) {
+          progressService.addLog(clientId, 'success', `第 ${i + 1} 部分处理完成，提取 ${partSentences.length} 个句子`);
+        }
         
         // 部分间延迟，避免API限制
         if (i < parts.length - 1) {
@@ -499,6 +531,15 @@ class AIService {
         clientId 
       });
 
+      // 添加进度日志
+      if (clientId && progressService.hasProgress(clientId)) {
+        if (splitCount === 0) {
+          progressService.addLog(clientId, 'info', `开始AI智能分句处理，文本长度: ${text.length} 字符`);
+        } else {
+          progressService.addLog(clientId, 'info', `继续分句处理 (分割次数: ${splitCount})`);
+        }
+      }
+
       // 调用DeepSeek API进行分句
       const response = await this.callDeepSeekAPI(prompt, text);
       
@@ -518,6 +559,11 @@ class AIService {
         sentenceCount: cleanedSentences.length,
         splitCount 
       });
+
+      // 添加进度日志
+      if (clientId && progressService.hasProgress(clientId)) {
+        progressService.addLog(clientId, 'success', `AI分句完成，提取到 ${cleanedSentences.length} 个句子`);
+      }
 
       return cleanedSentences;
 
@@ -852,6 +898,11 @@ class AIService {
       clientId 
     });
 
+    // 添加进度日志
+    if (clientId && progressService.hasProgress(clientId)) {
+      progressService.addLog(clientId, 'info', `开始智能分段，共 ${sentences.length} 个句子需要处理`);
+    }
+
     // 检查句子数量，如果过多则分批处理
     const maxSentencesPerBatch = 50; // 每批最多处理50个句子
     if (sentences.length > maxSentencesPerBatch) {
@@ -860,10 +911,20 @@ class AIService {
         maxPerBatch: maxSentencesPerBatch
       });
       
+      // 添加进度日志
+      if (clientId && progressService.hasProgress(clientId)) {
+        const totalBatches = Math.ceil(sentences.length / maxSentencesPerBatch);
+        progressService.addLog(clientId, 'info', `句子数量较多，分为 ${totalBatches} 批进行处理`);
+      }
+      
       return await this.generateParagraphsInBatches(sentences, englishLevel, clientId, maxSentencesPerBatch);
     }
 
     // 小批量直接处理
+    if (clientId && progressService.hasProgress(clientId)) {
+      progressService.addLog(clientId, 'info', '句子数量适中，开始直接处理');
+    }
+    
     return await this.processParagraphBatch(sentences, englishLevel, clientId);
   }
 
@@ -898,6 +959,11 @@ class AIService {
         batchSize: batch.length 
       });
       
+      // 添加进度日志
+      if (clientId && progressService.hasProgress(clientId)) {
+        progressService.addLog(clientId, 'info', `开始处理第 ${batchIndex + 1}/${batches.length} 批 (${batch.length} 个句子)`);
+      }
+      
       try {
         const batchParagraphs = await this.processParagraphBatch(batch, englishLevel, clientId);
         
@@ -916,6 +982,11 @@ class AIService {
         Logger.success(`第 ${batchIndex + 1} 批处理成功`, { 
           paragraphCount: batchParagraphs.length 
         });
+
+        // 添加进度日志
+        if (clientId && progressService.hasProgress(clientId)) {
+          progressService.addLog(clientId, 'success', `第 ${batchIndex + 1} 批处理完成，生成 ${batchParagraphs.length} 个段落`);
+        }
         
       } catch (error) {
         Logger.error(`第 ${batchIndex + 1} 批处理失败`, { 
@@ -1050,11 +1121,21 @@ class AIService {
     const totalTextLength = sentences.reduce((sum, sentence) => sum + sentence.text.length, 0);
     const largeFileThreshold = 20000; // 20KB作为大文件阈值
     
+    // 添加进度日志
+    if (clientId && progressService.hasProgress(clientId)) {
+      progressService.addLog(clientId, 'info', `准备生成 ${sentences.length} 个句子的解释，总文本长度: ${(totalTextLength/1000).toFixed(1)}KB`);
+    }
+    
     if (totalTextLength > largeFileThreshold) {
       Logger.info('检测到大文件，使用大文件处理策略', { 
         totalTextLength: totalTextLength, 
         threshold: largeFileThreshold 
       });
+      
+      // 添加进度日志
+      if (clientId && progressService.hasProgress(clientId)) {
+        progressService.addLog(clientId, 'info', `文本较大，采用大文件处理策略进行句子解释`);
+      }
       
       try {
         // 将句子数组转换为文本
@@ -1071,12 +1152,23 @@ class AIService {
           explanationsGenerated: explanations.length
         });
         
+        // 添加进度日志
+        if (clientId && progressService.hasProgress(clientId)) {
+          progressService.addLog(clientId, 'success', `大文件解释处理完成，生成了 ${explanations.length} 个解释`);
+        }
+        
         return sentences;
       } catch (error) {
         Logger.error('大文件解释处理失败，回退到传统方法', { 
           error: error.message,
           totalTextLength: totalTextLength 
         });
+        
+        // 添加进度日志
+        if (clientId && progressService.hasProgress(clientId)) {
+          progressService.addLog(clientId, 'warn', `大文件解释处理失败，回退到传统方法: ${error.message}`);
+        }
+        
         // 如果大文件处理失败，回退到传统方法
       }
     }
@@ -1155,13 +1247,19 @@ class AIService {
    * 生成词汇分析
    * @param {string} text - 完整文本
    * @param {string} englishLevel - 英语水平
+   * @param {string} clientId - 客户端ID（用于进度追踪）
    * @returns {Promise<Array>} 词汇分析数组
    */
-  async generateVocabularyAnalysis(text, englishLevel) {
+  async generateVocabularyAnalysis(text, englishLevel, clientId = null) {
     Logger.info('开始生成词汇分析', { 
       textLength: text.length, 
       englishLevel 
     });
+
+    // 添加进度日志
+    if (clientId && progressService.hasProgress(clientId)) {
+      progressService.addLog(clientId, 'info', `开始词汇分析，文本长度: ${(text.length/1000).toFixed(1)}KB，目标水平: ${englishLevel}`);
+    }
 
     // 检查是否为大文件处理
     const largeFileThreshold = 25000; // 25KB作为大文件阈值
@@ -1172,13 +1270,24 @@ class AIService {
         threshold: largeFileThreshold 
       });
       
+      // 添加进度日志
+      if (clientId && progressService.hasProgress(clientId)) {
+        progressService.addLog(clientId, 'info', `文本较大，采用大文件处理策略进行词汇分析`);
+      }
+      
       try {
-        return await this.processLargeFile(text, 'vocabulary', englishLevel, null);
+        return await this.processLargeFile(text, 'vocabulary', englishLevel, clientId);
       } catch (error) {
         Logger.error('大文件词汇分析失败，回退到传统方法', { 
           error: error.message,
           textLength: text.length 
         });
+        
+        // 添加进度日志
+        if (clientId && progressService.hasProgress(clientId)) {
+          progressService.addLog(clientId, 'warn', `大文件词汇分析失败，回退到传统方法: ${error.message}`);
+        }
+        
         // 如果大文件处理失败，回退到传统方法
       }
     }
@@ -1194,6 +1303,12 @@ class AIService {
           .slice(0, 8);
 
         Logger.success('词汇分析生成成功', { count: filteredVocabulary.length });
+        
+        // 添加进度日志
+        if (clientId && progressService.hasProgress(clientId)) {
+          progressService.addLog(clientId, 'success', `词汇分析生成成功，提取 ${filteredVocabulary.length} 个重点词汇`);
+        }
+        
         return filteredVocabulary;
       } else {
         throw new Error('返回格式不是数组');
@@ -1416,9 +1531,19 @@ CRITICAL: Return ONLY the JSON array below, no other text:
       clientId: clientId
     });
 
+    // 添加进度日志
+    if (clientId && progressService.hasProgress(clientId)) {
+      progressService.addLog(clientId, 'info', `开始大文件处理，文件大小: ${(textLength/1000).toFixed(1)}KB，处理类型: ${processingType}`);
+    }
+
     // 根据处理类型确定最佳分块策略
     const chunkStrategy = this.getChunkStrategy(processingType, textLength);
     Logger.info('使用分块策略', chunkStrategy);
+
+    // 添加进度日志
+    if (clientId && progressService.hasProgress(clientId)) {
+      progressService.addLog(clientId, 'info', `采用分块策略: ${chunkStrategy.description}`);
+    }
 
     // 智能分块
     const chunks = this.unifiedTextSplitter(text, {
@@ -1433,16 +1558,28 @@ CRITICAL: Return ONLY the JSON array below, no other text:
       averageChunkSize: Math.round(textLength / chunks.length)
     });
 
+    // 添加进度日志
+    if (clientId && progressService.hasProgress(clientId)) {
+      progressService.addLog(clientId, 'success', `文件分块完成，共分为 ${chunks.length} 个块，平均每块 ${Math.round(textLength / chunks.length)} 字符`);
+    }
+
     // 渐进式处理
     const results = [];
     const failedChunks = [];
 
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
+      const progress = ((i + 1) / chunks.length * 100).toFixed(1);
+      
       Logger.info(`处理第 ${i + 1}/${chunks.length} 块`, {
         chunkSize: chunk.text.length,
-        progress: `${((i + 1) / chunks.length * 100).toFixed(1)}%`
+        progress: `${progress}%`
       });
+
+      // 添加进度日志
+      if (clientId && progressService.hasProgress(clientId)) {
+        progressService.addLog(clientId, 'info', `处理第 ${i + 1}/${chunks.length} 块 (${(chunk.text.length/1000).toFixed(1)}KB, 进度: ${progress}%)`);
+      }
 
       try {
         let result;
@@ -1454,7 +1591,7 @@ CRITICAL: Return ONLY the JSON array below, no other text:
             result = await this.generateSentenceExplanations(chunk.text, englishLevel, clientId);
             break;
           case 'vocabulary':
-            result = await this.generateVocabularyAnalysis(chunk.text, englishLevel);
+            result = await this.generateVocabularyAnalysis(chunk.text, englishLevel, clientId);
             break;
           default:
             throw new Error(`未知的处理类型: ${processingType}`);
@@ -1470,6 +1607,12 @@ CRITICAL: Return ONLY the JSON array below, no other text:
         Logger.success(`第 ${i + 1} 块处理成功`, {
           resultSize: Array.isArray(result) ? result.length : 'N/A'
         });
+
+        // 添加进度日志
+        if (clientId && progressService.hasProgress(clientId)) {
+          const resultSize = Array.isArray(result) ? result.length : 'N/A';
+          progressService.addLog(clientId, 'success', `第 ${i + 1} 块处理成功，结果数量: ${resultSize}`);
+        }
 
       } catch (error) {
         Logger.error(`第 ${i + 1} 块处理失败`, {
